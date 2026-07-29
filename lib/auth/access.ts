@@ -14,8 +14,12 @@ export type AccessContext = {
     | "client_waiting"
     | "active_client"
     | "disabled";
+  departmentId: string | null;
   roleCodes: string[];
+  permissions: string[];
 };
+
+type PermissionRow = { permission_code: string | null };
 
 export const getAccessContext = cache(async (): Promise<AccessContext | null> => {
   if (!isSupabaseConfigured()) {
@@ -33,7 +37,7 @@ export const getAccessContext = cache(async (): Promise<AccessContext | null> =>
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, full_name, account_kind, activation_status")
+    .select("id, full_name, account_kind, activation_status, department_id")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -41,11 +45,14 @@ export const getAccessContext = cache(async (): Promise<AccessContext | null> =>
     return null;
   }
 
-  const { data: roleRows } = await supabase
-    .from("user_roles")
-    .select("roles!inner(code)")
-    .eq("user_id", user.id)
-    .is("revoked_at", null);
+  const [{ data: roleRows }, { data: permissionRows }] = await Promise.all([
+    supabase
+      .from("user_roles")
+      .select("roles!inner(code)")
+      .eq("user_id", user.id)
+      .is("revoked_at", null),
+    supabase.rpc("get_my_permissions"),
+  ]);
 
   const roleCodes = (roleRows ?? [])
     .map((row) => {
@@ -60,6 +67,10 @@ export const getAccessContext = cache(async (): Promise<AccessContext | null> =>
     fullName: profile.full_name,
     accountKind: profile.account_kind,
     activationStatus: profile.activation_status,
+    departmentId: profile.department_id,
     roleCodes,
+    permissions: ((permissionRows ?? []) as PermissionRow[])
+      .map((row) => row.permission_code)
+      .filter((code): code is string => Boolean(code)),
   } as AccessContext;
 });

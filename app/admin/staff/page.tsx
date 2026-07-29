@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 export default async function StaffAdministrationPage() {
   const access = await getAccessContext();
   if (!access) redirect("/login");
-  if (!access.roleCodes.includes("super_admin")) redirect("/workspace");
+  if (!access.permissions.includes("staff.approve")) redirect("/workspace");
 
   const supabase = await createClient();
   const [

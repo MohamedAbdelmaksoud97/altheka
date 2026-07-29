@@ -32,6 +32,10 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 type Person = { id: string; full_name: string };
+type EligibleStudyPerson = Person & {
+  can_execute: boolean;
+  can_approve: boolean;
+};
 
 const documentStatusLabels: Record<string, string> = {
   draft: "مسودة",
@@ -59,7 +63,7 @@ export default async function WorkspaceRequestPage({
     contractsResult,
     documentsResult,
     eventsResult,
-    staffResult,
+    eligibleStaffResult,
     projectResult,
   ] = await Promise.all([
     supabase
@@ -109,14 +113,7 @@ export default async function WorkspaceRequestPage({
       .select("id, title, details, visibility, created_at")
       .eq("service_request_id", id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("account_kind", "staff")
-      .eq("activation_status", "active_staff")
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .order("full_name"),
+    supabase.rpc("list_eligible_study_staff", { p_request_id: id }),
     supabase
       .from("projects")
       .select("id, name, status")
@@ -190,35 +187,43 @@ export default async function WorkspaceRequestPage({
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   )[0];
 
-  const isManager = access.roleCodes.some((role) =>
-    ["super_admin", "new_clients_manager"].includes(role),
-  );
-  const isSuperAdmin = access.roleCodes.includes("super_admin");
-  const canManagePublication = access.roleCodes.some((role) =>
-    [
-      "super_admin",
-      "new_clients_manager",
-      "litigation_manager",
-      "estates_manager",
-      "executive_manager",
-    ].includes(role),
-  );
+  const canManageRequest = access.permissions.includes("requests.manage");
+  const canLinkClient = access.permissions.includes("requests.link_client");
+  const canAssignStudy = access.permissions.includes("studies.assign");
+  const canManagePublication =
+    access.permissions.includes("documents.publish") &&
+    access.permissions.includes("documents.withdraw");
+  const requiredStudyApproval =
+    request.request_type === "estate"
+      ? "studies.approve_estates"
+      : "studies.approve_litigation";
   const canSubmitStudy =
     Boolean(caseRecord) &&
-    (isManager || caseRecord?.executor_id === access.userId) &&
+    caseRecord?.executor_id === access.userId &&
+    access.permissions.includes("studies.submit") &&
     ["assigned", "study_returned"].includes(request.status);
   const canReviewStudy =
     latestStudy?.status === "submitted" &&
-    (isSuperAdmin || caseRecord?.approver_id === access.userId);
+    caseRecord?.approver_id === access.userId &&
+    access.permissions.includes(requiredStudyApproval);
   const canUpload =
-    isManager || participantIds.includes(access.userId);
+    access.permissions.includes("documents.upload") &&
+    (canManageRequest || participantIds.includes(access.userId));
   const canSendProposal =
-    isManager &&
+    access.permissions.includes("offers.send") &&
     ["study_approved", "discount_requested", "negotiating"].includes(
       request.status,
     );
-  const canSendContract = isManager && request.status === "proposal_accepted";
-  const canConvert = isManager && request.status === "contract_accepted";
+  const canSendContract =
+    access.permissions.includes("contracts.send") &&
+    request.status === "proposal_accepted";
+  const canConvert =
+    access.permissions.includes("projects.create") &&
+    request.status === "contract_accepted";
+  const eligibleStaff =
+    (eligibleStaffResult.data ?? []) as EligibleStudyPerson[];
+  const eligibleExecutors = eligibleStaff.filter((person) => person.can_execute);
+  const eligibleApprovers = eligibleStaff.filter((person) => person.can_approve);
 
   const contract = contractsResult.data;
   const contractVersions = (contract?.contract_versions ?? []) as unknown as {
@@ -269,7 +274,7 @@ export default async function WorkspaceRequestPage({
 
       <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_23rem]">
         <div className="space-y-7">
-          {isManager && request.status === "received" ? (
+          {canLinkClient && request.status === "received" ? (
             <OperationSection
               title="ربط حساب العميل"
               description="ينشئ ملف العميل أو يربط الملف الموجود بهذا الطلب."
@@ -278,7 +283,7 @@ export default async function WorkspaceRequestPage({
             </OperationSection>
           ) : null}
 
-          {isManager &&
+          {canAssignStudy &&
           caseRecord &&
           ["linked", "collecting_documents", "assigned"].includes(
             request.status,
@@ -289,7 +294,8 @@ export default async function WorkspaceRequestPage({
             >
               <AssignRequestForm
                 requestId={request.id}
-                staff={(staffResult.data ?? []) as Person[]}
+                executors={eligibleExecutors}
+                approvers={eligibleApprovers}
                 defaultExecutorId={caseRecord.executor_id}
                 defaultApproverId={caseRecord.approver_id}
               />

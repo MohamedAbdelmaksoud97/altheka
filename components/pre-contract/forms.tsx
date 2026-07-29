@@ -88,13 +88,29 @@ function SubmitButton({
   );
 }
 
-export function CreateRequestForm() {
+export function CreateRequestForm({
+  clients,
+}: {
+  clients: { id: string; full_name: string; email?: string | null }[];
+}) {
   const [state, formAction] = useActionState(
     createRequestAction,
     initialActionState,
   );
   return (
     <form action={formAction} className="space-y-4">
+      <label className="block">
+        <span className="mb-2 block text-sm font-bold">حساب العميل</span>
+        <select name="client_profile_id" required className={inputClass}>
+          <option value="">اختر العميل المسجل</option>
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.full_name}
+              {client.email ? ` - ${client.email}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="block">
         <span className="mb-2 block text-sm font-bold">نوع الخدمة</span>
         <select name="request_type" required className={inputClass}>
@@ -128,7 +144,7 @@ export function CreateRequestForm() {
         />
       </label>
       <ActionNotice state={state} />
-      <SubmitButton label="إرسال الطلب" />
+      <SubmitButton label="إنشاء الطلب وربط العميل" />
     </form>
   );
 }
@@ -173,11 +189,11 @@ export function UploadDocumentForm({
           type="file"
           name="file"
           required
-          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
           className="block min-h-11 w-full rounded-md border border-line bg-white px-3 py-2 text-sm file:ml-3 file:rounded-md file:border-0 file:bg-[#e5eee9] file:px-3 file:py-1.5 file:font-bold file:text-brand"
         />
         <span className="mt-1.5 block text-xs text-muted">
-          PDF أو Word أو صورة، بحد أقصى 10 ميجابايت.
+          PDF أو Word أو Excel أو صورة، بحد أقصى 25 ميجابايت.
         </span>
       </label>
       {canPublish ? (
@@ -278,12 +294,14 @@ export function LinkClientForm({ requestId }: { requestId: string }) {
 
 export function AssignRequestForm({
   requestId,
-  staff,
+  executors,
+  approvers,
   defaultExecutorId,
   defaultApproverId,
 }: {
   requestId: string;
-  staff: { id: string; full_name: string }[];
+  executors: { id: string; full_name: string }[];
+  approvers: { id: string; full_name: string }[];
   defaultExecutorId?: string | null;
   defaultApproverId?: string | null;
 }) {
@@ -304,7 +322,7 @@ export function AssignRequestForm({
             className={inputClass}
           >
             <option value="">اختر الموظف</option>
-            {staff.map((member) => (
+            {executors.map((member) => (
               <option key={member.id} value={member.id}>
                 {member.full_name}
               </option>
@@ -320,7 +338,7 @@ export function AssignRequestForm({
             className={inputClass}
           >
             <option value="">اختر الموظف</option>
-            {staff.map((member) => (
+            {approvers.map((member) => (
               <option key={member.id} value={member.id}>
                 {member.full_name}
               </option>

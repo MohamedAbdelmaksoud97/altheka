@@ -6,10 +6,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { ActionState } from "@/app/actions/action-state";
+import {
+  DOCUMENT_ALLOWED_MIME_TYPES,
+  DOCUMENT_MAX_BYTES,
+} from "@/lib/documents/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 const requestSchema = z.object({
+  clientProfileId: z.uuid("اختر حساب العميل."),
   requestType: z.enum(["litigation", "estate", "consultation", "other"]),
   title: z.string().trim().min(5, "اكتب عنوانًا أوضح للطلب.").max(160),
   summary: z.string().trim().min(10, "أضف ملخصًا لا يقل عن 10 أحرف.").max(3000),
@@ -46,6 +51,7 @@ export async function createRequestAction(
   formData: FormData,
 ): Promise<ActionState> {
   const parsed = requestSchema.safeParse({
+    clientProfileId: formData.get("client_profile_id"),
     requestType: formData.get("request_type"),
     title: formData.get("title"),
     summary: formData.get("summary"),
@@ -58,18 +64,21 @@ export async function createRequestAction(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_client_service_request", {
+  const { data, error } = await supabase.rpc("create_staff_service_request", {
+    p_client_profile_id: parsed.data.clientProfileId,
     p_request_type: parsed.data.requestType,
     p_title: parsed.data.title,
     p_summary: parsed.data.summary,
   });
 
   if (error || !data) {
-    return errorState("تعذر إنشاء الطلب. تحقق من حساب العميل وحاول مرة أخرى.");
+    return errorState(
+      rpcMessage(error, "تعذر إنشاء الطلب وربطه بحساب العميل."),
+    );
   }
 
-  revalidatePath("/client");
-  redirect(`/client/requests/${data}`);
+  revalidatePath("/workspace/requests");
+  redirect(`/workspace/requests/${data}`);
 }
 
 export async function linkClientRequestAction(
@@ -361,14 +370,6 @@ export async function convertToProjectAction(
   return successState("تم إنشاء المشروع وربط فريق العمل والمسار.");
 }
 
-const allowedFiles = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
 export async function uploadRequestDocumentAction(
   _previousState: ActionState,
   formData: FormData,
@@ -408,11 +409,13 @@ export async function uploadRequestDocumentAction(
   if (!(file instanceof File) || file.size === 0) {
     return errorState("اختر ملفًا للرفع.");
   }
-  if (file.size > 10 * 1024 * 1024) {
-    return errorState("الحد الأقصى لحجم الملف 10 ميجابايت.");
+  if (file.size > DOCUMENT_MAX_BYTES) {
+    return errorState("الحد الأقصى لحجم الملف 25 ميجابايت.");
   }
-  if (!allowedFiles.has(file.type)) {
-    return errorState("نوع الملف غير مدعوم. استخدم PDF أو Word أو JPG أو PNG.");
+  if (!DOCUMENT_ALLOWED_MIME_TYPES.has(file.type)) {
+    return errorState(
+      "نوع الملف غير مدعوم. استخدم PDF أو Word أو Excel أو JPG أو PNG.",
+    );
   }
 
   const supabase = await createClient();

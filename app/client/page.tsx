@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, FilePlus2, FolderOpen } from "lucide-react";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { CreateRequestForm } from "@/components/pre-contract/forms";
 import { getAccessContext } from "@/lib/auth/access";
 import {
   labelFor,
@@ -31,7 +30,7 @@ export default async function ClientPortalPage() {
 
   return (
     <AppShell access={access} eyebrow="بوابة العميل" title="طلباتك القانونية">
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <div>
         <section>
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -82,21 +81,12 @@ export default async function ClientPortalPage() {
             <div className="mt-5 border-y border-line bg-surface px-5 py-8 text-center">
               <p className="font-bold">لا توجد طلبات حتى الآن</p>
               <p className="mt-2 text-sm text-muted">
-                أنشئ طلبك الأول من النموذج المجاور.
+                حسابك جاهز. سيظهر الطلب هنا بعد أن ينشئه مدير العملاء ويربطه
+                بحسابك.
               </p>
             </div>
           )}
         </section>
-
-        <aside className="h-fit rounded-md border border-line bg-surface">
-          <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-            <FilePlus2 className="size-5 text-brand" aria-hidden="true" />
-            <h2 className="font-bold">طلب خدمة جديد</h2>
-          </div>
-          <div className="p-5">
-            <CreateRequestForm />
-          </div>
-        </aside>
       </div>
     </AppShell>
   );

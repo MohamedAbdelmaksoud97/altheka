@@ -17,7 +17,8 @@ export default async function WorkspacePage() {
   if (access.activationStatus !== "active_staff") redirect("/waiting");
 
   const supabase = await createClient();
-  const isAdmin = access.roleCodes.includes("super_admin");
+  const canApproveStaff = access.permissions.includes("staff.approve");
+  const canManageRequests = access.permissions.includes("requests.manage");
 
   const [
     { count: templateCount },
@@ -26,15 +27,15 @@ export default async function WorkspacePage() {
     { count: requestCount },
   ] = await Promise.all([
     supabase
-      .from("workflow_templates")
+      .from("workflow_template_versions")
       .select("id", { count: "exact", head: true })
-      .eq("is_active", true),
+      .eq("status", "published"),
     supabase
       .from("projects")
       .select("id", { count: "exact", head: true })
       .eq("status", "active")
       .is("deleted_at", null),
-    isAdmin
+    canApproveStaff
       ? supabase
           .from("staff_registration_requests")
           .select("id", { count: "exact", head: true })
@@ -89,19 +90,21 @@ export default async function WorkspacePage() {
               <h2 className="text-lg font-bold">بداية Sprint الأول جاهزة</h2>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-muted">
-              قوالب ما قبل التعاقد والتقاضي وأصل التركة منشورة كبيانات تجريبية،
-              وتتضمن الأطراف الأربعة والتوازي وحدود 60 و90 يومًا.
+              قوالب التشغيل الحالية مستمرة للمشاريع القديمة، وقوالب v2 الكاملة
+              محفوظة كمسودات للمراجعة قبل نشرها على المشاريع الجديدة.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/workspace/requests"
-              className="flex h-11 items-center gap-2 rounded-md bg-brand px-4 font-bold text-white transition hover:bg-brand-strong"
-            >
-              طلبات العملاء ({requestCount ?? 0})
-              <ArrowLeft className="size-4" aria-hidden="true" />
-            </Link>
-            {isAdmin ? (
+            {canManageRequests ? (
+              <Link
+                href="/workspace/requests"
+                className="flex h-11 items-center gap-2 rounded-md bg-brand px-4 font-bold text-white transition hover:bg-brand-strong"
+              >
+                طلبات العملاء ({requestCount ?? 0})
+                <ArrowLeft className="size-4" aria-hidden="true" />
+              </Link>
+            ) : null}
+            {canApproveStaff ? (
               <Link
                 href="/admin/staff"
                 className="flex h-11 items-center gap-2 rounded-md border border-line bg-white px-4 font-bold text-muted transition hover:border-brand hover:text-brand"

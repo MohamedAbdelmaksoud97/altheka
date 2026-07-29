@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Inbox, Search } from "lucide-react";
+import { ArrowLeft, Inbox, Search, UserPlus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { CreateRequestForm } from "@/components/pre-contract/forms";
 import { getAccessContext } from "@/lib/auth/access";
 import {
   labelFor,
@@ -19,6 +20,7 @@ export default async function RequestsPage({
   const access = await getAccessContext();
   if (!access) redirect("/login");
   if (access.activationStatus !== "active_staff") redirect("/waiting");
+  if (!access.permissions.includes("requests.manage")) redirect("/workspace");
 
   const filters = await searchParams;
   const supabase = await createClient();
@@ -32,7 +34,19 @@ export default async function RequestsPage({
   if (filters.q?.trim()) {
     query = query.ilike("title", `%${filters.q.trim()}%`);
   }
-  const { data: requests } = await query;
+  const [{ data: requests }, { data: clients }] = await Promise.all([
+    query,
+    access.permissions.includes("requests.create")
+      ? supabase
+          .from("profiles")
+          .select("id, full_name")
+          .eq("account_kind", "client")
+          .in("activation_status", ["client_waiting", "active_client"])
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("full_name")
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
   return (
     <AppShell
@@ -40,6 +54,16 @@ export default async function RequestsPage({
       eyebrow="ما قبل التعاقد"
       title="طلبات العملاء"
     >
+      {access.permissions.includes("requests.create") ? (
+        <section className="mb-6 border-y border-line bg-surface px-5 py-5">
+          <div className="mb-5 flex items-center gap-3">
+            <UserPlus className="size-5 text-brand" aria-hidden="true" />
+            <h2 className="font-bold">إنشاء طلب وربط حساب العميل</h2>
+          </div>
+          <CreateRequestForm clients={clients ?? []} />
+        </section>
+      ) : null}
+
       <form className="grid gap-3 border-y border-line bg-surface px-5 py-4 sm:grid-cols-[1fr_15rem_auto]">
         <label className="relative">
           <Search

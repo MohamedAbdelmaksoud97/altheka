@@ -1,0 +1,64 @@
+# الصلاحيات
+
+الوصول مبني على الصلاحيات. الأدوار حاويات قابلة للإدارة ولا تستخدم أسماؤها
+وحدها لاتخاذ قرار تشغيلي.
+
+## الصلاحيات الدقيقة
+
+| المجال | الصلاحيات |
+|---|---|
+| العملاء | `clients.read`, `clients.manage` |
+| الطلبات | `requests.create`, `requests.link_client`, `requests.manage` |
+| الدراسات | `studies.assign`, `studies.submit`, `studies.approve_litigation`, `studies.approve_estates` |
+| العروض | `offers.create`, `offers.send`, `offers.negotiate` |
+| العقود | `contracts.create`, `contracts.send`, `contracts.accept`, `contracts.upload_signed` |
+| المشاريع | `projects.create`, `projects.read_department`, `projects.manage_members`, `projects.assign_manager`, `projects.assign_primary_assignee` |
+| الفرق | `project_teams.manage`, `project_teams.assign` |
+| Workflow | `workflow.start`, `workflow.transition`, `workflow.override_transition`, `workflow.reopen` |
+| المهام | `tasks.create`, `tasks.assign`, `tasks.reassign`, `tasks.submit`, `tasks.approve`, `tasks.return_for_revision`, `tasks.extend` |
+| المستندات | `documents.upload`, `documents.read_internal`, `documents.publish`, `documents.withdraw`, `documents.archive` |
+| المحادثات | `messages.client`, `messages.internal`, `messages.moderate` |
+| التقاضي | `litigation.manage_cases`, `litigation.manage_hearings`, `litigation.set_next_action` |
+| التركات | `estates.manage`, `estates.manage_parties`, `estates.manage_assets`, `estates.manage_reports` |
+| المالية | `finance.read`, `finance.manage`, `finance.approve_closure`, `collections.escalate` |
+| الإدارة | `staff.approve`, `roles.assign`, `roles.manage`, `audit.read`, `system.override` |
+
+## نطاق الأدوار الافتراضي
+
+| الدور | النطاق |
+|---|---|
+| `super_admin` | جميع الصلاحيات والتدخل الاستثنائي، دون أن يصبح طرفًا تشغيليًا تلقائيًا |
+| `new_clients_manager` | العملاء والطلبات والدراسة والعروض والعقود والتحويل، وإدارة فريق ما قبل التعاقد |
+| `litigation_manager` | كل مشاريع التقاضي في إدارته، الاعتماد، العضويات، القوالب والانتقالات |
+| `litigation_secretary` | متابعة المشاريع والمواعيد، تشكيل الفريق المصرح، المحادثات والمستندات، دون اعتماد دراسة أو تكليف نفسه |
+| `estates_manager` | كل مشاريع التركات، الأطراف والأصول والفرق والتقارير والاعتماد |
+| `estates_secretary` | المتابعة والفرق والمستندات والتقارير المصرح بها، دون اعتماد أو تكليف ذاتي |
+| `lawyer` | تنفيذ المهام وإدارة القضية والجلسات والإجراء القادم ضمن عضويته |
+| `legal_specialist` | التنفيذ والدراسة ضمن عضويته ونطاق تكليفه |
+| `accountant` | الفواتير والدفعات والتحصيل والمستندات المالية ضمن نطاق المشروع |
+| `executive_manager` | قراءة شاملة واعتماد الإقفال والتصعيد المحدد، بلا اعتماد يومي افتراضي |
+
+العميل ليس دور موظف. يصل فقط إلى موارده المنشورة أو المطلوب منه إجراء عليها.
+الموظف `pending_staff_approval` لا يملك وصولًا تشغيليًا حتى التفعيل.
+
+## قواعد RLS والخادم
+
+- جميع الجداول المعرضة تفعل RLS وتمنح أقل صلاحية لازمة لـ `authenticated`.
+- `has_permission(permission_code)` هو أساس القرار، مع فحص نطاق الإدارة وعضوية
+  المشروع أو علاقة العميل.
+- مدير الإدارة يرى مشاريع إدارته دون اشتراط عضويته في كل مشروع.
+- Super Admin يرى الجميع، لكن عمليات التجاوز تحتاج سببًا وتسجل في Audit.
+- قناة العميل والقناة الداخلية لهما سياسات منفصلة؛ لا يمكن للعميل الانضمام إلى
+  القناة الداخلية حتى لو أرسل معرفها يدويًا.
+- أي Server Action أو RPC يعيد التحقق من المستخدم والصلاحية والنطاق والمدخلات.
+- الموافقات والنشر والسحب والإسناد والتجاوز وإعادة الفتح عمليات مدققة.
+
+## قواعد التشكيل والإسناد
+
+- يشكل الفريق مدير الإدارة، سكرتير الإدارة المصرح، أو Super Admin ضمن نطاقه.
+- السماح بتشكيل الفريق لا يغير المنفذ أو المعتمد المحدد في القالب.
+- لا يكلف السكرتير نفسه؛ يحتاج تكليف مدير الإدارة أو مستخدم يملك صلاحية الإسناد.
+- مدير المشروع ومدير الإدارة وSuper Admin يبدأون Workflow.
+- التجاوز وإعادة الفتح لمدير المشروع أو مدير الإدارة أو Super Admin، مع سبب
+  إجباري وحفظ الحالة السابقة والجديدة والأثر.
+

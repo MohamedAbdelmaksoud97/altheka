@@ -15,9 +15,9 @@ export function AppShell({
   eyebrow: string;
   children: React.ReactNode;
 }) {
-  const isAdmin = access.roleCodes.includes("super_admin");
+  const canApproveStaff = access.permissions.includes("staff.approve");
   const homeHref = access.accountKind === "client" ? "/client" : "/workspace";
-  const canManageRequests = access.accountKind === "staff";
+  const canManageRequests = access.permissions.includes("requests.manage");
 
   return (
     <div className="min-h-screen">
@@ -57,7 +57,7 @@ export function AppShell({
                 <span className="sr-only">طلبات العملاء</span>
               </Link>
             ) : null}
-            {isAdmin ? (
+            {canApproveStaff ? (
               <Link
                 href="/admin/staff"
                 title="إدارة الموظفين"

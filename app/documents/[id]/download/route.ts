@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
+import { DOCUMENT_SIGNED_URL_SECONDS } from "@/lib/documents/config";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(
@@ -49,7 +50,10 @@ export async function GET(
 
   const { data: signed, error: signedUrlError } = await supabase.storage
     .from(currentVersion.storage_bucket)
-    .createSignedUrl(currentVersion.storage_path, 60);
+    .createSignedUrl(
+      currentVersion.storage_path,
+      DOCUMENT_SIGNED_URL_SECONDS,
+    );
   if (signedUrlError || !signed?.signedUrl) {
     return NextResponse.json(
       { error: "تعذر إصدار رابط التنزيل المؤقت." },

@@ -55,6 +55,8 @@ test("completes the registered-client to project journey", async ({
   const clientPassword = `FlowAa1!${runId}`;
   const clientName = `عميل مسار ${runId}`;
   let clientUserId: string | null = null;
+  let lawyerUserId: string | null = null;
+  let litigationManagerUserId: string | null = null;
   let requestId: string | null = null;
   let projectId: string | null = null;
 
@@ -80,10 +82,120 @@ test("completes the registered-client to project journey", async ({
   if (adminSignInError) throw adminSignInError;
   const adminUserId = adminSession.user.id;
 
+  const [
+    { data: litigationDepartment },
+    { data: lawyerRole },
+    { data: litigationManagerRole },
+  ] =
+    await Promise.all([
+      serviceClient
+        .from("departments")
+        .select("id")
+        .eq("code", "litigation")
+        .single(),
+      serviceClient.from("roles").select("id").eq("code", "lawyer").single(),
+      serviceClient
+        .from("roles")
+        .select("id")
+        .eq("code", "litigation_manager")
+        .single(),
+    ]);
+  const [{ data: lawyerTitle }, { data: litigationManagerTitle }] =
+    await Promise.all([
+      serviceClient
+        .from("job_titles")
+        .select("id")
+        .eq("code", "lawyer")
+        .single(),
+      serviceClient
+        .from("job_titles")
+        .select("id")
+        .eq("code", "litigation_manager")
+        .single(),
+    ]);
+  if (
+    !litigationDepartment ||
+    !lawyerRole ||
+    !litigationManagerRole ||
+    !lawyerTitle ||
+    !litigationManagerTitle
+  ) {
+    throw new Error("Litigation staff references are required");
+  }
+  const lawyerEmail = `mohamedhoarra+lawyer-${runId}@gmail.com`;
+  const lawyerPassword = `LawyerAa1!${runId}`;
+  const { data: lawyerUser, error: lawyerUserError } =
+    await serviceClient.auth.admin.createUser({
+      email: lawyerEmail,
+      password: lawyerPassword,
+      email_confirm: true,
+      user_metadata: {
+        registration_kind: "staff",
+        full_name: `محامي اختبار ${runId}`,
+      },
+    });
+  if (lawyerUserError) throw lawyerUserError;
+  lawyerUserId = lawyerUser.user.id;
+  await serviceClient
+    .from("profiles")
+    .update({
+      department_id: litigationDepartment.id,
+      job_title_id: lawyerTitle.id,
+      activation_status: "active_staff",
+      is_active: true,
+      approved_at: new Date().toISOString(),
+      approved_by: adminUserId,
+    })
+    .eq("id", lawyerUserId);
+  await serviceClient.from("user_roles").upsert({
+    user_id: lawyerUserId,
+    role_id: lawyerRole.id,
+    assigned_by: adminUserId,
+    revoked_at: null,
+  });
+
+  const managerEmail = `mohamedhoarra+manager-${runId}@gmail.com`;
+  const managerPassword = `ManagerAa1!${runId}`;
+  const { data: managerUser, error: managerUserError } =
+    await serviceClient.auth.admin.createUser({
+      email: managerEmail,
+      password: managerPassword,
+      email_confirm: true,
+      user_metadata: {
+        registration_kind: "staff",
+        full_name: `مدير تقاض اختبار ${runId}`,
+      },
+    });
+  if (managerUserError) throw managerUserError;
+  litigationManagerUserId = managerUser.user.id;
+  await serviceClient
+    .from("profiles")
+    .update({
+      department_id: litigationDepartment.id,
+      job_title_id: litigationManagerTitle.id,
+      activation_status: "active_staff",
+      is_active: true,
+      approved_at: new Date().toISOString(),
+      approved_by: adminUserId,
+    })
+    .eq("id", litigationManagerUserId);
+  await serviceClient.from("user_roles").upsert({
+    user_id: litigationManagerUserId,
+    role_id: litigationManagerRole.id,
+    assigned_by: adminUserId,
+    revoked_at: null,
+  });
+
   const clientUi = await newContextPage(() =>
     browser.newContext({ locale: "ar-EG", timezoneId: "Africa/Cairo" }),
   );
   const adminUi = await newContextPage(() =>
+    browser.newContext({ locale: "ar-EG", timezoneId: "Africa/Cairo" }),
+  );
+  const lawyerUi = await newContextPage(() =>
+    browser.newContext({ locale: "ar-EG", timezoneId: "Africa/Cairo" }),
+  );
+  const managerUi = await newContextPage(() =>
     browser.newContext({ locale: "ar-EG", timezoneId: "Africa/Cairo" }),
   );
 
@@ -94,21 +206,30 @@ test("completes the registered-client to project journey", async ({
       clientUi.page.getByRole("heading", { name: "طلباتك القانونية" }),
     ).toBeVisible();
 
-    await clientUi.page
-      .getByLabel("نوع الخدمة")
-      .selectOption("litigation");
-    await clientUi.page
+    await expect(
+      clientUi.page.getByText(/سيظهر الطلب هنا بعد أن ينشئه مدير العملاء/),
+    ).toBeVisible();
+
+    await login(adminUi.page, adminEmail, adminPassword);
+    await expect(adminUi.page).toHaveURL(/\/workspace$/, { timeout: 30_000 });
+    await adminUi.page.goto("/workspace/requests");
+    await adminUi.page.getByLabel("حساب العميل").selectOption(clientUserId);
+    await adminUi.page.getByLabel("نوع الخدمة").selectOption("litigation");
+    await adminUi.page
       .getByLabel("عنوان الطلب")
       .fill(`مطالبة مالية تجريبية ${runId}`);
-    await clientUi.page
+    await adminUi.page
       .getByLabel("ملخص الطلب")
       .fill("طلب تجريبي متكامل للتحقق من جميع مراحل ما قبل التعاقد.");
-    await clientUi.page.getByRole("button", { name: "إرسال الطلب" }).click();
-    await expect(clientUi.page).toHaveURL(/\/client\/requests\/[0-9a-f-]+$/, {
+    await adminUi.page
+      .getByRole("button", { name: "إنشاء الطلب وربط العميل" })
+      .click();
+    await expect(adminUi.page).toHaveURL(/\/workspace\/requests\/[0-9a-f-]+$/, {
       timeout: 30_000,
     });
-    requestId = clientUi.page.url().split("/").pop()!;
+    requestId = adminUi.page.url().split("/").pop()!;
 
+    await clientUi.page.goto(`/client/requests/${requestId}`);
     await clientUi.page.getByLabel("عنوان المستند").fill("مستند المطالبة");
     await clientUi.page
       .getByLabel("نوع المستند")
@@ -123,8 +244,6 @@ test("completes the registered-client to project journey", async ({
       timeout: 30_000,
     });
 
-    await login(adminUi.page, adminEmail, adminPassword);
-    await expect(adminUi.page).toHaveURL(/\/workspace$/, { timeout: 30_000 });
     await adminUi.page.goto(`/workspace/requests/${requestId}`);
     await expect(
       adminUi.page.getByRole("heading", {
@@ -225,43 +344,45 @@ test("completes the registered-client to project journey", async ({
         .filter({ hasText: "مذكرة داخلية للاختبار" }),
     ).toHaveCount(0);
 
-    await adminUi.page
-      .getByRole("button", { name: "ربط العميل بالطلب" })
-      .click();
     await expect(adminUi.page.getByLabel("المكلف بالدراسة")).toBeVisible({
       timeout: 30_000,
     });
 
     await adminUi.page
       .getByLabel("المكلف بالدراسة")
-      .selectOption(adminUserId);
+      .selectOption(lawyerUserId);
     await adminUi.page
       .getByLabel("معتمد الدراسة")
-      .selectOption(adminUserId);
+      .selectOption(litigationManagerUserId);
     await adminUi.page.getByRole("button", { name: "حفظ التكليف" }).click();
+    await login(lawyerUi.page, lawyerEmail, lawyerPassword);
+    await lawyerUi.page.goto(`/workspace/requests/${requestId}`);
     await expect(
-      adminUi.page.getByRole("heading", { name: "إعداد الدراسة القانونية" }),
+      lawyerUi.page.getByRole("heading", { name: "إعداد الدراسة القانونية" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await adminUi.page
+    await lawyerUi.page
       .getByLabel("ملخص الدراسة")
       .fill("تثبت المستندات الأولية وجود مطالبة مالية قابلة للدراسة.");
-    await adminUi.page
+    await lawyerUi.page
       .getByLabel("الرأي القانوني")
       .fill("نوصي بالبدء بإخطار نظامي ثم رفع الدعوى عند عدم السداد.");
-    await adminUi.page
+    await lawyerUi.page
       .getByLabel("المسار المقترح")
       .selectOption("litigation");
-    await adminUi.page
+    await lawyerUi.page
       .getByRole("button", { name: "إرسال الدراسة للاعتماد" })
       .click();
+    await login(managerUi.page, managerEmail, managerPassword);
+    await managerUi.page.goto(`/workspace/requests/${requestId}`);
     await expect(
-      adminUi.page.getByRole("button", { name: "اعتماد الدراسة" }),
+      managerUi.page.getByRole("button", { name: "اعتماد الدراسة" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await adminUi.page
+    await managerUi.page
       .getByRole("button", { name: "اعتماد الدراسة" })
       .click();
+    await adminUi.page.goto(`/workspace/requests/${requestId}`);
     await expect(
       adminUi.page.getByRole("heading", { name: "العرض الفني والمالي" }),
     ).toBeVisible({
@@ -383,13 +504,15 @@ test("completes the registered-client to project journey", async ({
       .from("workflow_instances")
       .select("id", { count: "exact", head: true })
       .eq("project_id", projectId);
-    expect(workflowCount).toBeGreaterThanOrEqual(1);
+    expect(workflowCount).toBe(0);
 
     await clientUi.page.goto(`/client/requests/${requestId}`);
     await expect(clientUi.page.getByText("تم إنشاء المشروع")).toBeVisible();
   } finally {
     await clientUi.context.close();
     await adminUi.context.close();
+    await lawyerUi.context.close();
+    await managerUi.context.close();
 
     const archivedAt = new Date().toISOString();
     if (requestId) {
@@ -428,6 +551,24 @@ test("completes the registered-client to project journey", async ({
         .update({ activation_status: "disabled", is_active: false })
         .eq("id", clientUserId);
       await serviceClient.auth.admin.updateUserById(clientUserId, {
+        ban_duration: "876000h",
+      });
+    }
+    if (lawyerUserId) {
+      await serviceClient
+        .from("profiles")
+        .update({ activation_status: "disabled", is_active: false })
+        .eq("id", lawyerUserId);
+      await serviceClient.auth.admin.updateUserById(lawyerUserId, {
+        ban_duration: "876000h",
+      });
+    }
+    if (litigationManagerUserId) {
+      await serviceClient
+        .from("profiles")
+        .update({ activation_status: "disabled", is_active: false })
+        .eq("id", litigationManagerUserId);
+      await serviceClient.auth.admin.updateUserById(litigationManagerUserId, {
         ban_duration: "876000h",
       });
     }
