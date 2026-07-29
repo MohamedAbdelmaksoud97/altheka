@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# منصة العمليات القانونية
 
-## Getting Started
+تطبيق عربي RTL مبني بـNext.js 16 وSupabase لإدارة التسجيل والصلاحيات والمشاريع وسير العمل والمستندات القانونية.
 
-First, run the development server:
+## الإعداد المحلي
 
-```bash
+1. انسخ قيم `.env.example` إلى `.env.local` وأدخل مفاتيح مشروع التطوير.
+2. استخدم `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` للمفتاح العام. لا تضع Service Role أو SMTP أو `DATABASE_URL` في متغير يبدأ بـ`NEXT_PUBLIC_`.
+3. ثبّت الحزم وشغّل التطبيق:
+
+```powershell
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+يفتح التطبيق على [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+إذا كانت مفاتيح Auth العامة غير موجودة، يعرض التطبيق شاشة إعداد بدل تشغيل التسجيل ببيانات ناقصة.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## قاعدة البيانات
 
-## Learn More
+توجد المهاجرات في `supabase/migrations`. لتطبيقها على بيئة جديدة:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+npx supabase db push --db-url $env:DATABASE_URL --include-all
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+بعد كل تغيير في المخطط:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```powershell
+npx supabase db advisors --db-url $env:DATABASE_URL --type security --level warn
+npx supabase db advisors --db-url $env:DATABASE_URL --type performance --level warn
+```
 
-## Deploy on Vercel
+## أول مدير نظام
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+حدد `INITIAL_SUPER_ADMIN_EMAIL` و`SUPABASE_SERVICE_ROLE_KEY` ثم شغّل:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+npm run bootstrap:admin
+```
+
+السكربت Idempotent. إذا لم يكن المستخدم موجودًا، سجله من صفحة الموظفين ثم أعد التشغيل، أو استخدم `INITIAL_SUPER_ADMIN_PASSWORD` لمرة واحدة واحذفه فورًا بعدها.
+
+## التحقق
+
+```powershell
+npm run lint
+npm run typecheck
+npm test
+npm run test:e2e
+npm run build
+npm audit
+```
+
+قرارات المشروع وافتراضاته الحالية موثقة في [`docs/assumptions.md`](docs/assumptions.md).
