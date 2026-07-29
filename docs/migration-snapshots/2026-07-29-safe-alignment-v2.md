@@ -32,7 +32,8 @@ Post-migration verification: passed. Every count and identity hash matched.
 The database now has 60 permissions; all 7 requests, 3 projects, and 2 active
 Workflow Instances are marked `legacy`; the 2 received requests are marked for
 manager review. Template v2 action counts are 8/40/93/51 and all four versions
-remain `draft`. The private bucket is limited to 25MB and the approved MIME list.
+were initially created as `draft`. The private bucket is limited to 25MB and the
+approved MIME list.
 
 ## Live acceptance result
 
@@ -55,6 +56,7 @@ The live Arabic E2E flow passed on 2026-07-29:
 
 Acceptance-test records are disabled or archived rather than physically deleted,
 in line with the MVP retention policy. They are not part of the pre-migration
-identity baseline above. Template v2 versions remain `draft`; publishing them is
-an explicit operational release action after the remaining confirmation markers
-are resolved.
+identity baseline above. A later additive operational migration published the
+litigation, estate, and estate-asset v2 templates after the corresponding
+interfaces and live acceptance scenarios were verified. Legacy workflow
+instances remain pinned to their original template versions.

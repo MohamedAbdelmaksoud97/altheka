@@ -53,4 +53,14 @@ npm run build
 npm audit
 ```
 
+## بيانات العرض
+
+بعد تحديد `DEMO_CLIENT_PASSWORD` يمكن إنشاء بيانات عرض Idempotent:
+
+```powershell
+npm run seed:demo
+```
+
+يتوفر سيناريو العرض في [`docs/demo-runbook.md`](docs/demo-runbook.md).
+
 قرارات المشروع وافتراضاته الحالية موثقة في [`docs/assumptions.md`](docs/assumptions.md).

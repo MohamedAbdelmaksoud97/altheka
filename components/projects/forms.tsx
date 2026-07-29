@@ -1,0 +1,802 @@
+"use client";
+
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
+import {
+  ArrowUpLeft,
+  BriefcaseBusiness,
+  CalendarPlus,
+  Check,
+  CirclePlay,
+  FileUp,
+  Gavel,
+  LoaderCircle,
+  MessageSquareText,
+  Plus,
+  Save,
+  UsersRound,
+} from "lucide-react";
+import {
+  createEstateAssetAction,
+  createEstatePartyAction,
+  createProjectTeamAction,
+  operateWorkflowAction,
+  recordEstateShareAction,
+  recordHearingOutcomeAction,
+  scheduleHearingAction,
+  sendProjectMessageAction,
+  setCaseActionStatusAction,
+  setNextActionAction,
+  startProjectWorkflowAction,
+  updateEstateAssetAction,
+  updateProjectDocumentPublicationAction,
+  uploadProjectDocumentAction,
+  upsertEstateDetailsAction,
+  upsertLitigationCaseAction,
+} from "@/app/actions/projects";
+import {
+  initialActionState,
+  type ActionState,
+} from "@/app/actions/action-state";
+
+const inputClass =
+  "h-11 w-full rounded-md border border-line bg-white px-3 text-sm focus:border-brand focus:outline-none";
+const textareaClass =
+  "w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm leading-7 focus:border-brand focus:outline-none";
+
+function ActionNotice({ state }: { state: ActionState }) {
+  if (!state.message) return null;
+  return (
+    <p
+      role="status"
+      className={`rounded-md border px-3 py-2 text-sm ${
+        state.status === "success"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-red-200 bg-red-50 text-red-800"
+      }`}
+    >
+      {state.message}
+    </p>
+  );
+}
+
+function SubmitButton({
+  label,
+  icon: Icon = Save,
+  tone = "brand",
+  compact = false,
+}: {
+  label: string;
+  icon?: typeof Save;
+  tone?: "brand" | "neutral" | "success";
+  compact?: boolean;
+}) {
+  const { pending } = useFormStatus();
+  const toneClass =
+    tone === "neutral"
+      ? "border border-line bg-white text-foreground hover:border-brand"
+      : tone === "success"
+        ? "bg-emerald-700 text-white hover:bg-emerald-800"
+        : "bg-brand text-white hover:bg-brand-strong";
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "px-3 text-xs" : "px-5 text-sm"} ${toneClass}`}
+    >
+      {pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <Icon className="size-4" aria-hidden="true" />
+      )}
+      {pending ? "جارٍ الحفظ" : label}
+    </button>
+  );
+}
+
+export function StartWorkflowForm({ projectId }: { projectId: string }) {
+  const [state, action] = useActionState(
+    startProjectWorkflowAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <ActionNotice state={state} />
+      <SubmitButton label="تشغيل خارطة السير" icon={CirclePlay} />
+    </form>
+  );
+}
+
+const workflowNext: Record<
+  string,
+  { status: string; label: string; tone?: "brand" | "success" }
+> = {
+  ready: { status: "in_progress", label: "بدء التنفيذ" },
+  in_progress: { status: "submitted", label: "إرسال للمراجعة" },
+  submitted: { status: "awaiting_approval", label: "طلب الاعتماد" },
+  awaiting_approval: {
+    status: "approved",
+    label: "اعتماد النتيجة",
+    tone: "success",
+  },
+  approved: { status: "completed", label: "إغلاق الإجراء", tone: "success" },
+  returned_for_revision: { status: "in_progress", label: "استئناف التعديل" },
+};
+
+export function WorkflowActionControl({
+  projectId,
+  actionId,
+  status,
+}: {
+  projectId: string;
+  actionId: string;
+  status: string;
+}) {
+  const [state, action] = useActionState(
+    operateWorkflowAction,
+    initialActionState,
+  );
+  const next = workflowNext[status];
+  if (!next) return null;
+  return (
+    <form action={action} className="space-y-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="action_id" value={actionId} />
+      <input type="hidden" name="next_status" value={next.status} />
+      <ActionNotice state={state} />
+      <SubmitButton
+        label={next.label}
+        icon={next.status === "approved" ? Check : ArrowUpLeft}
+        tone={next.tone}
+        compact
+      />
+    </form>
+  );
+}
+
+export function LitigationCaseForm({
+  projectId,
+  initial,
+}: {
+  projectId: string;
+  initial?: {
+    case_number: string | null;
+    court_name: string | null;
+    case_level: string;
+  } | null;
+}) {
+  const [state, action] = useActionState(
+    upsertLitigationCaseAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">رقم القضية</span>
+        <input
+          name="case_number"
+          defaultValue={initial?.case_number ?? ""}
+          className={inputClass}
+          placeholder="رقم القيد"
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">المحكمة</span>
+        <input
+          name="court_name"
+          defaultValue={initial?.court_name ?? ""}
+          required
+          className={inputClass}
+          placeholder="المحكمة المختصة"
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">درجة القضية</span>
+        <select
+          name="case_level"
+          defaultValue={initial?.case_level ?? "first_instance"}
+          className={inputClass}
+        >
+          <option value="first_instance">ابتدائي</option>
+          <option value="appeal">استئناف</option>
+          <option value="cassation">نقض</option>
+          <option value="enforcement">تنفيذ</option>
+        </select>
+      </label>
+      <div className="sm:col-span-3">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-3">
+        <SubmitButton label="حفظ بطاقة القضية" icon={Gavel} />
+      </div>
+    </form>
+  );
+}
+
+export function NextActionForm({
+  projectId,
+  caseId,
+  members,
+}: {
+  projectId: string;
+  caseId: string;
+  members: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    setNextActionAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="case_id" value={caseId} />
+      <input type="hidden" name="action_type" value="follow_up" />
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">الإجراء القادم</span>
+        <input
+          name="title"
+          required
+          className={inputClass}
+          placeholder="مثال: إعداد مذكرة الرد"
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">موعد التنفيذ</span>
+        <input name="due_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الموعد القانوني</span>
+        <input name="legal_due_date" type="date" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الأولوية</span>
+        <select name="priority" className={inputClass} defaultValue="high">
+          <option value="normal">عادية</option>
+          <option value="high">عالية</option>
+          <option value="critical">قصوى</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">المكلف</span>
+        <select name="assigned_to" className={inputClass}>
+          <option value="">المكلف الرئيسي</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="تثبيت الإجراء القادم" icon={ArrowUpLeft} />
+      </div>
+    </form>
+  );
+}
+
+export function HearingForm({
+  projectId,
+  caseId,
+}: {
+  projectId: string;
+  caseId: string;
+}) {
+  const [state, action] = useActionState(
+    scheduleHearingAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="case_id" value={caseId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">موعد الجلسة</span>
+        <input name="hearing_at" type="datetime-local" required className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">وقت التبليغ</span>
+        <input name="notified_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">مرجع الدائرة أو الرابط</span>
+        <input name="court_reference" className={inputClass} />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إضافة الجلسة" icon={CalendarPlus} />
+      </div>
+    </form>
+  );
+}
+
+export function HearingOutcomeForm({
+  projectId,
+  hearingId,
+}: {
+  projectId: string;
+  hearingId: string;
+}) {
+  const [state, action] = useActionState(
+    recordHearingOutcomeAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="hearing_id" value={hearingId} />
+      <label>
+        <span className="mb-2 block text-xs font-bold">النتيجة</span>
+        <select name="status" className={inputClass} defaultValue="held">
+          <option value="held">انعقدت</option>
+          <option value="adjourned">تأجلت</option>
+          <option value="cancelled">ألغيت</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">الجلسة التالية عند التأجيل</span>
+        <input name="next_hearing_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-xs font-bold">ملخص النتيجة</span>
+        <textarea name="outcome_summary" rows={3} required className={textareaClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">الإجراء التالي</span>
+        <input name="next_action_title" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">تاريخه</span>
+        <input name="next_action_due_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">أو موعده القانوني</span>
+        <input name="next_action_legal_due_date" type="date" className={inputClass} />
+      </label>
+      <div className="self-end">
+        <SubmitButton label="حفظ النتيجة" icon={Check} compact />
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function CaseActionStatusForm({
+  projectId,
+  actionId,
+  status,
+}: {
+  projectId: string;
+  actionId: string;
+  status: string;
+}) {
+  const [state, action] = useActionState(
+    setCaseActionStatusAction,
+    initialActionState,
+  );
+  const nextStatus = status === "planned" ? "in_progress" : "completed";
+  if (!["planned", "in_progress"].includes(status)) return null;
+  return (
+    <form action={action} className="space-y-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="action_id" value={actionId} />
+      <input type="hidden" name="status" value={nextStatus} />
+      <ActionNotice state={state} />
+      <SubmitButton
+        label={nextStatus === "in_progress" ? "بدء" : "إكمال"}
+        icon={nextStatus === "in_progress" ? CirclePlay : Check}
+        compact
+        tone={nextStatus === "completed" ? "success" : "neutral"}
+      />
+    </form>
+  );
+}
+
+export function EstateDetailsForm({
+  projectId,
+  initial,
+}: {
+  projectId: string;
+  initial?: {
+    deceased_name: string;
+    estate_kind: string;
+  } | null;
+}) {
+  const [state, action] = useActionState(
+    upsertEstateDetailsAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">اسم المورث</span>
+        <input
+          name="deceased_name"
+          required
+          defaultValue={initial?.deceased_name ?? ""}
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع التركة</span>
+        <select
+          name="estate_kind"
+          defaultValue={initial?.estate_kind ?? "regular_estate"}
+          className={inputClass}
+        >
+          <option value="regular_estate">تركة عادية</option>
+          <option value="isnad_estate">مسندة من مركز الإسناد</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">اكتمال المستندات</span>
+        <input name="documents_completed_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">إصدار الوكالات</span>
+        <input name="agencies_issued_at" type="datetime-local" className={inputClass} />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="حفظ ملف التركة" icon={BriefcaseBusiness} />
+      </div>
+    </form>
+  );
+}
+
+export function EstatePartyForm({ projectId }: { projectId: string }) {
+  const [state, action] = useActionState(
+    createEstatePartyAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع الطرف</span>
+        <select name="party_type" className={inputClass}>
+          <option value="heir">وارث</option>
+          <option value="representative">ممثل</option>
+          <option value="beneficiary">مستفيد</option>
+          <option value="guardian">ولي أو وصي</option>
+          <option value="creditor">دائن</option>
+          <option value="other">صاحب علاقة</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الاسم الكامل</span>
+        <input name="full_name" required className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الهوية</span>
+        <input name="national_id" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الجوال</span>
+        <input name="phone" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">البريد</span>
+        <input name="email" type="email" className={inputClass} />
+      </label>
+      <label className="flex h-11 items-center gap-3 self-end rounded-md border border-line px-3 text-sm">
+        <input name="is_minor" type="checkbox" className="size-4 accent-brand" />
+        قاصر
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إضافة الطرف" icon={Plus} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateShareForm({
+  projectId,
+  partyId,
+}: {
+  projectId: string;
+  partyId: string;
+}) {
+  const [state, action] = useActionState(
+    recordEstateShareAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="party_id" value={partyId} />
+      <label className="w-20">
+        <span className="mb-1 block text-xs text-muted">البسط</span>
+        <input name="numerator" type="number" min="0" step="0.001" className={inputClass} />
+      </label>
+      <span className="pb-3 text-muted">/</span>
+      <label className="w-20">
+        <span className="mb-1 block text-xs text-muted">المقام</span>
+        <input name="denominator" type="number" min="0.001" step="0.001" className={inputClass} />
+      </label>
+      <SubmitButton label="حفظ النصيب" icon={Save} compact />
+      <ActionNotice state={state} />
+    </form>
+  );
+}
+
+export function EstateAssetForm({ projectId }: { projectId: string }) {
+  const [state, action] = useActionState(
+    createEstateAssetAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع الأصل</span>
+        <select name="asset_type" className={inputClass}>
+          <option value="real_estate">عقار</option>
+          <option value="vehicle">مركبة</option>
+          <option value="bank_account">حساب بنكي</option>
+          <option value="investment_portfolio">محفظة استثمارية</option>
+          <option value="commercial_register">سجل تجاري</option>
+          <option value="movable">منقول</option>
+          <option value="cash">نقد</option>
+          <option value="debt">دين</option>
+          <option value="litigation">قضية</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">اسم الأصل</span>
+        <input name="name" required className={inputClass} />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">الوصف</span>
+        <textarea name="description" rows={3} className={textareaClass} />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إنشاء الأصل ومشروعه" icon={Plus} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateAssetUpdateForm({
+  projectId,
+  asset,
+}: {
+  projectId: string;
+  asset: {
+    id: string;
+    current_stage: string | null;
+    status: string;
+    valuation_amount: number | null;
+    liquidation_status: string | null;
+    marketing_status: string | null;
+  };
+}) {
+  const [state, action] = useActionState(
+    updateEstateAssetAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="asset_id" value={asset.id} />
+      <select
+        name="current_stage"
+        defaultValue={asset.current_stage ?? "preparation"}
+        className={inputClass}
+        title="مرحلة الأصل"
+      >
+        <option value="inventory">الحصر</option>
+        <option value="preparation">التهيئة</option>
+        <option value="guardianship">الحراسة</option>
+        <option value="litigation">التقاضي</option>
+        <option value="liquidation">التصفية</option>
+        <option value="marketing">التسويق</option>
+        <option value="completed">مكتمل</option>
+      </select>
+      <select name="status" defaultValue={asset.status} className={inputClass} title="حالة الأصل">
+        <option value="active">نشط</option>
+        <option value="under_guardianship">تحت الحراسة</option>
+        <option value="in_litigation">في التقاضي</option>
+        <option value="marketed">معروض للتسويق</option>
+        <option value="sold">مباع</option>
+        <option value="distributed">موزع</option>
+        <option value="closed">مغلق</option>
+      </select>
+      <input
+        name="valuation_amount"
+        type="number"
+        min="0"
+        step="0.01"
+        defaultValue={asset.valuation_amount ?? ""}
+        className={inputClass}
+        placeholder="قيمة التقييم"
+      />
+      <input
+        name="liquidation_status"
+        defaultValue={asset.liquidation_status ?? ""}
+        className={inputClass}
+        placeholder="حالة التصفية"
+      />
+      <input
+        name="marketing_status"
+        defaultValue={asset.marketing_status ?? ""}
+        className={inputClass}
+        placeholder="حالة التسويق"
+      />
+      <div className="self-end">
+        <SubmitButton label="تحديث الأصل" icon={Save} compact />
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectTeamForm({
+  projectId,
+  members,
+}: {
+  projectId: string;
+  members: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    createProjectTeamAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input name="code" required className={inputClass} placeholder="رمز الفريق" />
+      <input name="name" required className={inputClass} placeholder="اسم الفريق" />
+      <select name="leader_id" className={inputClass}>
+        <option value="">دون قائد مؤقتًا</option>
+        {members.map((member) => (
+          <option key={member.id} value={member.id}>
+            {member.name}
+          </option>
+        ))}
+      </select>
+      <div className="sm:col-span-3">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-3">
+        <SubmitButton label="إنشاء فريق" icon={UsersRound} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectMessageForm({
+  projectId,
+  conversationId,
+}: {
+  projectId: string;
+  conversationId: string;
+}) {
+  const [state, action] = useActionState(
+    sendProjectMessageAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="conversation_id" value={conversationId} />
+      <textarea
+        name="body"
+        rows={3}
+        required
+        className={textareaClass}
+        placeholder="اكتب تحديثًا واضحًا لفريق المشروع..."
+      />
+      <ActionNotice state={state} />
+      <SubmitButton label="إرسال الرسالة" icon={MessageSquareText} />
+    </form>
+  );
+}
+
+export function ProjectDocumentForm({ projectId }: { projectId: string }) {
+  const [state, action] = useActionState(
+    uploadProjectDocumentAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">عنوان المستند</span>
+        <input name="title" required className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع المستند</span>
+        <select name="document_type" className={inputClass}>
+          <option value="case_document">مستند قضية</option>
+          <option value="power_of_attorney">وكالة</option>
+          <option value="court_filing">مذكرة أو لائحة</option>
+          <option value="hearing_minutes">ضبط جلسة</option>
+          <option value="estate_document">مستند تركة</option>
+          <option value="report">تقرير</option>
+        </select>
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">الملف</span>
+        <input
+          name="file"
+          type="file"
+          required
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+          className="block w-full rounded-md border border-dashed border-line bg-white px-3 py-4 text-sm file:ml-3 file:rounded-md file:border-0 file:bg-[#e5eee9] file:px-3 file:py-2 file:font-bold file:text-brand"
+        />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="رفع وفهرسة" icon={FileUp} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectDocumentPublicationForm({
+  projectId,
+  documentId,
+  currentStatus,
+  currentVisibility,
+}: {
+  projectId: string;
+  documentId: string;
+  currentStatus: string;
+  currentVisibility: string;
+}) {
+  const [state, action] = useActionState(
+    updateProjectDocumentPublicationAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-3 flex flex-wrap items-end gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="document_id" value={documentId} />
+      <select
+        name="visibility"
+        defaultValue={currentVisibility}
+        className="h-9 rounded-md border border-line bg-white px-2 text-xs"
+        title="مستوى الرؤية"
+      >
+        <option value="internal">داخلي</option>
+        <option value="client_visible">ظاهر للعميل</option>
+        <option value="requires_client_action">يتطلب إجراء العميل</option>
+      </select>
+      <select
+        name="status"
+        defaultValue={currentStatus}
+        className="h-9 rounded-md border border-line bg-white px-2 text-xs"
+        title="حالة النشر"
+      >
+        <option value="draft">مسودة</option>
+        <option value="awaiting_approval">بانتظار اعتماد النشر</option>
+        <option value="published">منشور</option>
+        <option value="withdrawn">مسحوب</option>
+      </select>
+      <SubmitButton label="تحديث النشر" icon={Save} compact />
+      <ActionNotice state={state} />
+    </form>
+  );
+}

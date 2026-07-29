@@ -81,11 +81,9 @@ export default async function ClientRequestPage({
       )
       .eq("service_request_id", id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("projects")
-      .select("id, name, status, client_stage_label")
-      .eq("service_request_id", id)
-      .maybeSingle(),
+    supabase.rpc("get_my_client_project_for_request", {
+      p_service_request_id: id,
+    }),
   ]);
 
   const request = requestResult.data;
@@ -126,6 +124,15 @@ export default async function ClientRequestPage({
       (version) => version.version_number === contract?.current_version_number,
     ) ?? null;
 
+  const linkedProject = (
+    (projectResult.data ?? []) as {
+      id: string;
+      name: string;
+      status: string;
+      client_stage_label: string | null;
+    }[]
+  )[0];
+
   return (
     <AppShell
       access={access}
@@ -161,7 +168,7 @@ export default async function ClientRequestPage({
         </div>
       </section>
 
-      {projectResult.data ? (
+      {linkedProject ? (
         <section className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-md border border-emerald-200 bg-emerald-50 px-5 py-4">
           <div className="flex items-center gap-3">
             <BriefcaseBusiness
@@ -171,12 +178,12 @@ export default async function ClientRequestPage({
             <div>
               <h2 className="font-bold">تم إنشاء المشروع</h2>
               <p className="mt-1 text-sm text-emerald-800">
-                {projectResult.data.client_stage_label ?? "تم بدء المشروع"}
+                {linkedProject.client_stage_label ?? "تم بدء المشروع"}
               </p>
             </div>
           </div>
           <span className="text-sm font-bold text-emerald-800">
-            {projectResult.data.name}
+            {linkedProject.name}
           </span>
         </section>
       ) : null}

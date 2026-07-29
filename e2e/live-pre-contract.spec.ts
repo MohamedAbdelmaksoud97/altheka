@@ -203,11 +203,11 @@ test("completes the registered-client to project journey", async ({
     await login(clientUi.page, clientEmail, clientPassword);
     await expect(clientUi.page).toHaveURL(/\/client$/, { timeout: 30_000 });
     await expect(
-      clientUi.page.getByRole("heading", { name: "طلباتك القانونية" }),
+      clientUi.page.getByRole("heading", { name: "ملفك القانوني" }),
     ).toBeVisible();
 
     await expect(
-      clientUi.page.getByText(/سيظهر الطلب هنا بعد أن ينشئه مدير العملاء/),
+      clientUi.page.getByText(/سيظهر الطلب بعد أن ينشئه مدير العملاء/),
     ).toBeVisible();
 
     await login(adminUi.page, adminEmail, adminPassword);

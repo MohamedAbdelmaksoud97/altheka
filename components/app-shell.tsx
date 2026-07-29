@@ -1,6 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Files, LayoutDashboard, LogOut, Settings2 } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  Files,
+  LayoutDashboard,
+  LogOut,
+  Settings2,
+} from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import type { AccessContext } from "@/lib/auth/access";
 
@@ -18,6 +24,7 @@ export function AppShell({
   const canApproveStaff = access.permissions.includes("staff.approve");
   const homeHref = access.accountKind === "client" ? "/client" : "/workspace";
   const canManageRequests = access.permissions.includes("requests.manage");
+  const canOpenProjects = access.accountKind === "staff";
 
   return (
     <div className="min-h-screen">
@@ -55,6 +62,16 @@ export function AppShell({
               >
                 <Files className="size-5" aria-hidden="true" />
                 <span className="sr-only">طلبات العملاء</span>
+              </Link>
+            ) : null}
+            {canOpenProjects ? (
+              <Link
+                href="/workspace/projects"
+                title="المشاريع"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <BriefcaseBusiness className="size-5" aria-hidden="true" />
+                <span className="sr-only">المشاريع</span>
               </Link>
             ) : null}
             {canApproveStaff ? (
