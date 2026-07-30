@@ -105,6 +105,44 @@ export async function operateWorkflowAction(
   return successState("تم تحديث الإجراء وتقدم المرحلة.");
 }
 
+export async function activateLitigationWorkflowStageAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      stageCode: z.enum(["appeal", "enforcement", "closing_collection"]),
+      reason: z.string().trim().min(5).max(1000),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      stageCode: formData.get("stage_code"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) {
+    return errorState("اختر المرحلة التالية وسجل سبب القرار.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc(
+    "activate_litigation_workflow_stage",
+    {
+      p_project_id: parsed.data.projectId,
+      p_stage_code: parsed.data.stageCode,
+      p_reason: parsed.data.reason,
+    },
+  );
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر تشغيل المرحلة المختارة. راجع حالة المرحلة الحالية."),
+    );
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم تشغيل المرحلة المختارة وإنشاء إجراءاتها الحالية.");
+}
+
 export async function upsertLitigationCaseAction(
   _state: ActionState,
   formData: FormData,

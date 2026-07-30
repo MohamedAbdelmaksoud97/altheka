@@ -29,6 +29,7 @@ import {
   LitigationActionResponseForm,
   LitigationActionReviewForm,
   LitigationCaseForm,
+  LitigationStageRoutingForm,
   NextActionForm,
   ProjectDocumentForm,
   ProjectDocumentPublicationForm,
@@ -434,6 +435,55 @@ export default async function ProjectPage({
     project.project_type,
   );
   const isEstate = project.project_type === "estate";
+  const activeWorkflowStage = stages.find((stage) =>
+    ["active", "overdue"].includes(stage.status),
+  );
+  const activeWorkflowStageCode = activeWorkflowStage
+    ? stageData(activeWorkflowStage)?.code
+    : null;
+  const firstInstanceCompleted = stages.some(
+    (stage) =>
+      stageData(stage)?.code === "first_instance" &&
+      stage.status === "completed",
+  );
+  const canSelectLitigationPath =
+    access.permissions.includes("system.override") ||
+    access.permissions.includes("workflow.override_transition") ||
+    project.project_manager_id === access.userId;
+  const litigationRoutingOptions: {
+    code: "appeal" | "enforcement" | "closing_collection";
+    label: string;
+  }[] = [];
+  if (stages.some((stage) => stageData(stage)?.code === "appeal" && stage.status === "pending")) {
+    litigationRoutingOptions.push({ code: "appeal", label: "بدء الاستئناف" });
+  }
+  if (
+    stages.some(
+      (stage) =>
+        stageData(stage)?.code === "enforcement" && stage.status === "pending",
+    )
+  ) {
+    litigationRoutingOptions.push({ code: "enforcement", label: "بدء التنفيذ" });
+  }
+  if (
+    stages.some(
+      (stage) =>
+        stageData(stage)?.code === "closing_collection" &&
+        stage.status === "pending",
+    )
+  ) {
+    litigationRoutingOptions.push({
+      code: "closing_collection",
+      label: "بدء الإقفال والتحصيل",
+    });
+  }
+  const showLitigationRouting =
+    isLitigation &&
+    workflow?.status === "active" &&
+    firstInstanceCompleted &&
+    canSelectLitigationPath &&
+    litigationRoutingOptions.length > 0 &&
+    (!activeWorkflowStage || activeWorkflowStageCode === "closing_collection");
 
   const tabs = [
     { code: "overview", label: "نظرة عامة", show: true },
@@ -610,7 +660,9 @@ export default async function ProjectPage({
                             ? "المرحلة الحالية"
                             : stage.status === "completed"
                               ? "مكتملة"
-                              : "لاحقة"}
+                              : stage.status === "skipped"
+                                ? "لم يتطلبها المسار"
+                                : "لاحقة"}
                         </span>
                       </div>
                     );
@@ -621,6 +673,15 @@ export default async function ProjectPage({
                   </p>
                 )}
               </div>
+              {showLitigationRouting ? (
+                <div className="border-t border-line bg-subtle px-5 py-5">
+                  <h3 className="mb-4 font-bold">قرار المسار التالي</h3>
+                  <LitigationStageRoutingForm
+                    projectId={project.id}
+                    options={litigationRoutingOptions}
+                  />
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-md border border-line bg-surface">
@@ -670,14 +731,6 @@ export default async function ProjectPage({
             </section>
           ) : (
             stages
-              .filter((stage) => {
-                const code = stageData(stage)?.code;
-                return isLitigation
-                  ? ["congratulations", "foundation_registration", "first_instance"].includes(
-                      code ?? "",
-                    )
-                  : true;
-              })
               .map((stage) => {
                 const data = stageData(stage);
                 const stageActions = actions
@@ -709,7 +762,9 @@ export default async function ProjectPage({
                           ? "جارية"
                           : stage.status === "completed"
                             ? "مكتملة"
-                            : "لاحقة"}
+                            : stage.status === "skipped"
+                              ? "لم يتطلبها المسار"
+                              : "لاحقة"}
                       </span>
                     </div>
                     <div className="divide-y divide-line">

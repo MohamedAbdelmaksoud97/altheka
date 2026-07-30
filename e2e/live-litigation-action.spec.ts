@@ -9,6 +9,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publishableKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const routingProjectId = "6f49d178-b6ef-472e-af67-ec5b26fe2138";
 
 test.beforeEach(() => {
   if (!lawyerPassword || !supabaseUrl || !publishableKey) {
@@ -82,6 +83,28 @@ test("assigned lawyer sees the current action execution control", async ({
 
   await page.screenshot({
     path: `artifacts/screenshots/${testInfo.project.name}-litigation-action.png`,
+    fullPage: true,
+  });
+});
+
+test("litigation project manager sees the conditional stage routing control", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/login");
+  await page.locator('input[name="email"]').fill(lawyerEmail);
+  await page.locator('input[name="password"]').fill(lawyerPassword!);
+  await page.locator('form button[type="submit"]').click();
+  await page.waitForURL(/\/workspace/);
+  await page.goto(`/workspace/projects/${routingProjectId}`);
+
+  const routingForm = page.getByTestId("litigation-stage-routing");
+  const stageSelect = page.getByTestId("litigation-stage-select");
+  await expect(routingForm).toBeVisible();
+  await expect(stageSelect.locator('option[value="appeal"]')).toHaveCount(1);
+  await expect(stageSelect.locator('option[value="enforcement"]')).toHaveCount(1);
+
+  await page.screenshot({
+    path: `artifacts/screenshots/${testInfo.project.name}-stage-routing.png`,
     fullPage: true,
   });
 });

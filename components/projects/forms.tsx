@@ -10,6 +10,7 @@ import {
   CirclePlay,
   FileUp,
   Gavel,
+  GitBranch,
   LoaderCircle,
   MessageSquareText,
   Paperclip,
@@ -21,6 +22,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import {
+  activateLitigationWorkflowStageAction,
   createEstateAssetAction,
   createEstatePartyAction,
   createProjectTeamAction,
@@ -117,6 +119,58 @@ export function StartWorkflowForm({ projectId }: { projectId: string }) {
       <input type="hidden" name="project_id" value={projectId} />
       <ActionNotice state={state} />
       <SubmitButton label="تشغيل خارطة السير" icon={CirclePlay} />
+    </form>
+  );
+}
+
+export function LitigationStageRoutingForm({
+  projectId,
+  options,
+}: {
+  projectId: string;
+  options: { code: "appeal" | "enforcement" | "closing_collection"; label: string }[];
+}) {
+  const [state, action] = useActionState(
+    activateLitigationWorkflowStageAction,
+    initialActionState,
+  );
+  return (
+    <form
+      action={action}
+      data-testid="litigation-stage-routing"
+      className="grid gap-3 sm:grid-cols-[14rem_minmax(0,1fr)_auto] sm:items-end"
+    >
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">المسار التالي</span>
+        <select
+          name="stage_code"
+          data-testid="litigation-stage-select"
+          className={inputClass}
+          required
+        >
+          {options.map((option) => (
+            <option key={option.code} value={option.code}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">سبب اختيار المسار</span>
+        <input
+          name="reason"
+          required
+          minLength={5}
+          maxLength={1000}
+          className={inputClass}
+          placeholder="الحكم أو طلب العميل أو اكتمال التنفيذ"
+        />
+      </label>
+      <SubmitButton label="اعتماد المسار" icon={GitBranch} />
+      <div className="sm:col-span-3">
+        <ActionNotice state={state} />
+      </div>
     </form>
   );
 }
