@@ -27,15 +27,22 @@ import {
 import {
   acknowledgeAttentionNoticeAction,
   activateLitigationWorkflowStageAction,
+  assignEstateProjectMemberAction,
   assignProjectAssistantAction,
   createEstateAssetAction,
+  createEstateLitigationSubprojectAction,
   createEstatePartyAction,
+  createEstateReportAction,
   createProjectTeamAction,
   issueAttentionNoticeAction,
   operateWorkflowAction,
+  recordEstateDecisionAction,
+  recordEstateFinancialEntryAction,
   recordEstateShareAction,
   recordHearingOutcomeAction,
+  removeEstateProjectMemberAction,
   removeProjectAssistantAction,
+  reviewEstateFinancialEntryAction,
   reviewLitigationActionResponseAction,
   scheduleHearingAction,
   sendProjectMessageAction,
@@ -44,12 +51,15 @@ import {
   startLitigationActionExecutionAction,
   startProjectWorkflowAction,
   submitLitigationActionResponseAction,
+  transitionEstateReportAction,
   updateEstateAssetAction,
   updateProjectCategoryAction,
   updateProjectDocumentPublicationAction,
+  upsertEstateBankAccountAction,
   uploadProjectDocumentAction,
   upsertEstateDetailsAction,
   upsertLitigationCaseAction,
+  verifyEstateBankAccountAction,
 } from "@/app/actions/projects";
 import {
   initialActionState,
@@ -1097,6 +1107,491 @@ export function EstateAssetUpdateForm({
       />
       <div className="self-end">
         <SubmitButton label="تحديث الأصل" icon={Save} compact />
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateBankAccountForm({
+  projectId,
+  partyId,
+}: {
+  projectId: string;
+  partyId: string;
+}) {
+  const [state, action] = useActionState(
+    upsertEstateBankAccountAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-4 grid gap-2 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="party_id" value={partyId} />
+      <input
+        name="iban"
+        required
+        minLength={15}
+        maxLength={34}
+        className={inputClass}
+        placeholder="رقم الآيبان"
+        dir="ltr"
+      />
+      <input
+        name="bank_name"
+        maxLength={120}
+        className={inputClass}
+        placeholder="اسم البنك"
+      />
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+        <SubmitButton label="حفظ الحساب" icon={Save} compact />
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateBankVerificationForm({
+  projectId,
+  accountId,
+  verified,
+}: {
+  projectId: string;
+  accountId: string;
+  verified: boolean;
+}) {
+  const [state, action] = useActionState(
+    verifyEstateBankAccountAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-2 flex flex-wrap items-center gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="account_id" value={accountId} />
+      <input type="hidden" name="verified" value={verified ? "false" : "true"} />
+      <SubmitButton
+        label={verified ? "إلغاء التحقق" : "اعتماد الحساب"}
+        icon={ShieldCheck}
+        compact
+        tone={verified ? "neutral" : "success"}
+      />
+      <ActionNotice state={state} />
+    </form>
+  );
+}
+
+export function EstateDecisionForm({
+  projectId,
+  partyId,
+}: {
+  projectId: string;
+  partyId: string;
+}) {
+  const [state, action] = useActionState(
+    recordEstateDecisionAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-4 grid gap-2 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="party_id" value={partyId} />
+      <select name="decision_type" className={inputClass}>
+        <option value="consent">موافقة</option>
+        <option value="approval">اعتماد</option>
+        <option value="release">مخالصة</option>
+        <option value="objection">اعتراض</option>
+      </select>
+      <select name="status" className={inputClass}>
+        <option value="pending">بانتظار الرد</option>
+        <option value="accepted">مقبول</option>
+        <option value="rejected">مرفوض</option>
+        <option value="withdrawn">مسحوب</option>
+      </select>
+      <input
+        name="subject_type"
+        required
+        maxLength={120}
+        className={`${inputClass} sm:col-span-2`}
+        placeholder="موضوع القرار، مثل بيع العقار أو المخالصة النهائية"
+      />
+      <textarea
+        name="notes"
+        rows={2}
+        maxLength={1000}
+        className={`${textareaClass} sm:col-span-2`}
+        placeholder="ملاحظات القرار"
+      />
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+        <SubmitButton label="تسجيل القرار" icon={Check} compact />
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateFinancialEntryForm({
+  projectId,
+  assets,
+  parties,
+}: {
+  projectId: string;
+  assets: { id: string; name: string }[];
+  parties: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    recordEstateFinancialEntryAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع القيد</span>
+        <select name="entry_type" className={inputClass}>
+          <option value="income">إيراد</option>
+          <option value="expense">مصروف</option>
+          <option value="reserve">احتياطي</option>
+          <option value="distribution">توزيع لوارث</option>
+          <option value="transfer">تحويل</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">المبلغ</span>
+        <div className="grid grid-cols-[1fr_5rem] gap-2">
+          <input
+            name="amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            className={inputClass}
+          />
+          <input
+            name="currency"
+            defaultValue="SAR"
+            maxLength={3}
+            required
+            className={inputClass}
+            dir="ltr"
+          />
+        </div>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الأصل</span>
+        <select name="asset_id" className={inputClass}>
+          <option value="">قيد عام للتركة</option>
+          {assets.map((asset) => (
+            <option key={asset.id} value={asset.id}>
+              {asset.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الوارث أو الطرف</span>
+        <select name="party_id" className={inputClass}>
+          <option value="">دون طرف محدد</option>
+          {parties.map((party) => (
+            <option key={party.id} value={party.id}>
+              {party.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">تاريخ القيد</span>
+        <input
+          name="occurred_on"
+          type="date"
+          required
+          defaultValue={new Date().toISOString().slice(0, 10)}
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">البيان</span>
+        <input
+          name="description"
+          required
+          minLength={3}
+          maxLength={1000}
+          className={inputClass}
+        />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إرسال القيد للاعتماد" icon={Send} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateFinancialReviewForm({
+  projectId,
+  entryId,
+}: {
+  projectId: string;
+  entryId: string;
+}) {
+  const [state, action] = useActionState(
+    reviewEstateFinancialEntryAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="entry_id" value={entryId} />
+      <input
+        name="review_notes"
+        maxLength={1000}
+        className={inputClass}
+        placeholder="ملاحظة الاعتماد أو سبب الرفض"
+      />
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          name="decision"
+          value="approved"
+          className="h-11 rounded-md bg-emerald-700 px-3 text-sm font-bold text-white"
+        >
+          اعتماد
+        </button>
+        <button
+          type="submit"
+          name="decision"
+          value="rejected"
+          className="h-11 rounded-md border border-red-300 px-3 text-sm font-bold text-red-700"
+        >
+          رفض
+        </button>
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateReportCreateForm({ projectId }: { projectId: string }) {
+  const [state, action] = useActionState(
+    createEstateReportAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">نهاية فترة التقرير</span>
+        <input
+          name="period_end"
+          type="date"
+          required
+          defaultValue={new Date().toISOString().slice(0, 10)}
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">ملاحظات معد التقرير</span>
+        <input name="human_notes" maxLength={5000} className={inputClass} />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إنشاء التقرير من بيانات النظام" icon={Plus} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateReportTransitionForm({
+  projectId,
+  reportId,
+  status,
+}: {
+  projectId: string;
+  reportId: string;
+  status: string;
+}) {
+  const [state, action] = useActionState(
+    transitionEstateReportAction,
+    initialActionState,
+  );
+  const next =
+    status === "draft"
+      ? { status: "submitted", label: "إرسال للمراجعة" }
+      : status === "submitted"
+        ? { status: "approved", label: "اعتماد التقرير" }
+        : status === "approved"
+          ? { status: "published", label: "نشر للعميل" }
+          : status === "published"
+            ? { status: "withdrawn", label: "سحب من العميل" }
+            : null;
+  if (!next) return null;
+
+  return (
+    <form action={action} className="mt-3 space-y-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="report_id" value={reportId} />
+      <input type="hidden" name="new_status" value={next.status} />
+      {status === "draft" ? (
+        <textarea
+          name="human_notes"
+          rows={2}
+          maxLength={5000}
+          className={textareaClass}
+          placeholder="ملاحظات بشرية تضاف إلى النسخة المقدمة"
+        />
+      ) : null}
+      <SubmitButton
+        label={next.label}
+        icon={status === "approved" ? Send : Check}
+        compact
+        tone={status === "submitted" ? "success" : "brand"}
+      />
+      <ActionNotice state={state} />
+    </form>
+  );
+}
+
+export function EstateProjectMemberForm({
+  projectId,
+  staff,
+}: {
+  projectId: string;
+  staff: { id: string; name: string; department?: string | null }[];
+}) {
+  const [state, action] = useActionState(
+    assignEstateProjectMemberAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <select name="user_id" required className={inputClass}>
+        <option value="">اختر موظفًا</option>
+        {staff.map((employee) => (
+          <option key={employee.id} value={employee.id}>
+            {employee.name}
+            {employee.department ? ` - ${employee.department}` : ""}
+          </option>
+        ))}
+      </select>
+      <select name="membership_role" className={inputClass}>
+        <option value="executor">منفذ</option>
+        <option value="follower">متابع</option>
+        <option value="finance">مالية</option>
+        <option value="litigation">تقاضي</option>
+        <option value="observer">مراقب</option>
+      </select>
+      <label className="flex h-11 items-center gap-3 rounded-md border border-line px-3 text-sm">
+        <input
+          name="can_contact_client"
+          type="checkbox"
+          className="size-4 accent-brand"
+        />
+        السماح بالتواصل مع العميل
+      </label>
+      <div className="self-end">
+        <SubmitButton label="إضافة إلى المشروع" icon={UserPlus} />
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function EstateProjectMemberRemoveForm({
+  projectId,
+  userId,
+}: {
+  projectId: string;
+  userId: string;
+}) {
+  const [state, action] = useActionState(
+    removeEstateProjectMemberAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-2 flex flex-wrap items-end gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="user_id" value={userId} />
+      <input
+        name="reason"
+        required
+        minLength={5}
+        maxLength={1000}
+        className={`${inputClass} min-w-52 flex-1`}
+        placeholder="سبب إنهاء العضوية"
+      />
+      <SubmitButton label="إنهاء العضوية" icon={UserMinus} compact />
+      <ActionNotice state={state} />
+    </form>
+  );
+}
+
+export function EstateLitigationReferralForm({
+  projectId,
+  categories,
+  managers,
+  assignees,
+}: {
+  projectId: string;
+  categories: { id: string; name: string }[];
+  managers: { id: string; name: string }[];
+  assignees: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    createEstateLitigationSubprojectAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">موضوع نزاع التركة</span>
+        <input name="name" required minLength={3} className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">تخصص النزاع</span>
+        <select name="category_id" required className={inputClass}>
+          <option value="">اختر التخصص</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">مدير مشروع التقاضي</span>
+        <select name="project_manager_id" required className={inputClass}>
+          <option value="">اختر مدير التقاضي</option>
+          {managers.map((manager) => (
+            <option key={manager.id} value={manager.id}>
+              {manager.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">المكلف الرئيسي</span>
+        <select name="primary_assignee_id" required className={inputClass}>
+          <option value="">اختر المحامي أو الأخصائي</option>
+          {assignees.map((assignee) => (
+            <option key={assignee.id} value={assignee.id}>
+              {assignee.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="self-end">
+        <SubmitButton label="إنشاء مشروع التقاضي" icon={Gavel} />
       </div>
       <div className="sm:col-span-2">
         <ActionNotice state={state} />

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   BellRing,
+  BadgeCheck,
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
@@ -11,9 +12,11 @@ import {
   Clock3,
   Download,
   FileText,
+  FileChartColumn,
   Gavel,
   Landmark,
   MessageSquareText,
+  WalletCards,
   UsersRound,
   Workflow,
 } from "lucide-react";
@@ -24,8 +27,18 @@ import {
   CaseActionStatusForm,
   EstateAssetForm,
   EstateAssetUpdateForm,
+  EstateBankAccountForm,
+  EstateBankVerificationForm,
+  EstateDecisionForm,
   EstateDetailsForm,
+  EstateFinancialEntryForm,
+  EstateFinancialReviewForm,
+  EstateLitigationReferralForm,
   EstatePartyForm,
+  EstateProjectMemberForm,
+  EstateProjectMemberRemoveForm,
+  EstateReportCreateForm,
+  EstateReportTransitionForm,
   EstateShareForm,
   HearingForm,
   HearingOutcomeForm,
@@ -178,6 +191,39 @@ const litigationActionStatusLabels: Record<string, string> = {
   cancelled: "ملغي",
   superseded: "مستبدل",
 };
+const estateDecisionTypeLabels: Record<string, string> = {
+  consent: "موافقة",
+  approval: "اعتماد",
+  release: "مخالصة",
+  objection: "اعتراض",
+};
+const estateDecisionStatusLabels: Record<string, string> = {
+  pending: "بانتظار الرد",
+  accepted: "مقبول",
+  rejected: "مرفوض",
+  withdrawn: "مسحوب",
+};
+const estateFinancialTypeLabels: Record<string, string> = {
+  income: "إيراد",
+  expense: "مصروف",
+  reserve: "احتياطي",
+  distribution: "توزيع",
+  transfer: "تحويل",
+};
+const estateFinancialStatusLabels: Record<string, string> = {
+  draft: "مسودة",
+  submitted: "بانتظار الاعتماد",
+  approved: "معتمد",
+  rejected: "مرفوض",
+  reversed: "معكوس",
+};
+const estateReportStatusLabels: Record<string, string> = {
+  draft: "مسودة",
+  submitted: "قيد المراجعة",
+  approved: "معتمد",
+  published: "منشور للعميل",
+  withdrawn: "مسحوب",
+};
 
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -232,6 +278,14 @@ export default async function ProjectPage({
     conversationsResult,
     assigneesResult,
     attentionNoticesResult,
+    estateBankAccountsResult,
+    estateDecisionsResult,
+    estateFinanceResult,
+    estateReportScheduleResult,
+    estateReportsResult,
+    estateLitigationProjectsResult,
+    staffDirectoryResult,
+    litigationCategoriesResult,
   ] = await Promise.all([
     supabase
       .from("project_members")
@@ -306,6 +360,81 @@ export default async function ProjectPage({
       )
       .eq("project_id", id)
       .order("created_at", { ascending: false }),
+    project.project_type === "estate"
+      ? supabase
+          .from("estate_party_bank_accounts")
+          .select(
+            "id, estate_party_id, iban, bank_name, is_verified, verified_at, estate_parties!inner(estate_project_id)",
+          )
+          .eq("estate_parties.estate_project_id", id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("estate_party_decisions")
+          .select(
+            "id, estate_party_id, decision_type, subject_type, status, notes, recorded_at, estate_parties!inner(estate_project_id)",
+          )
+          .eq("estate_parties.estate_project_id", id)
+          .order("recorded_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("estate_financial_entries")
+          .select(
+            "id, estate_asset_id, estate_party_id, entry_type, amount, currency, occurred_on, description, status, review_notes, created_at",
+          )
+          .eq("estate_project_id", id)
+          .is("archived_at", null)
+          .order("occurred_on", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("recurring_report_schedules")
+          .select(
+            "id, interval_days, preparation_business_days, next_period_ends_on, status",
+          )
+          .eq("project_id", id)
+          .eq("report_type", "estate_quarterly")
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    project.project_type === "estate"
+      ? supabase
+          .from("project_reports")
+          .select(
+            "id, period_start, period_end, due_at, status, current_version_number, approved_at, published_at, project_report_versions(version_number, generated_data, human_notes, created_at)",
+          )
+          .eq("project_id", id)
+          .order("period_end", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("projects")
+          .select("id, name, project_number, status, client_stage_label")
+          .eq("parent_project_id", id)
+          .eq("project_type", "estate_litigation")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("profiles")
+          .select(
+            "id, full_name, department:departments!profiles_department_id_fkey(name, code), user_roles!user_roles_user_id_fkey(revoked_at, role:roles!user_roles_role_id_fkey(code))",
+          )
+          .eq("account_kind", "staff")
+          .eq("activation_status", "active_staff")
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("full_name")
+      : Promise.resolve({ data: [] }),
+    project.project_type === "estate"
+      ? supabase
+          .from("litigation_case_categories")
+          .select("id, name")
+          .eq("is_active", true)
+          .order("sort_order")
+      : Promise.resolve({ data: [] }),
   ]);
 
   const members = (membersResult.data ?? []) as unknown as ProjectMemberRow[];
@@ -333,6 +462,96 @@ export default async function ProjectPage({
   );
   const attentionNotices =
     (attentionNoticesResult.data ?? []) as unknown as AttentionNoticeRow[];
+  const estateBankAccounts = (estateBankAccountsResult.data ?? []) as {
+    id: string;
+    estate_party_id: string;
+    iban: string;
+    bank_name: string | null;
+    is_verified: boolean;
+    verified_at: string | null;
+  }[];
+  const estateDecisions = (estateDecisionsResult.data ?? []) as {
+    id: string;
+    estate_party_id: string;
+    decision_type: string;
+    subject_type: string;
+    status: string;
+    notes: string | null;
+    recorded_at: string;
+  }[];
+  const estateFinanceEntries = (estateFinanceResult.data ?? []) as {
+    id: string;
+    estate_asset_id: string | null;
+    estate_party_id: string | null;
+    entry_type: string;
+    amount: number;
+    currency: string;
+    occurred_on: string;
+    description: string;
+    status: string;
+    review_notes: string | null;
+    created_at: string;
+  }[];
+  const estateReports = (estateReportsResult.data ?? []) as {
+    id: string;
+    period_start: string;
+    period_end: string;
+    due_at: string;
+    status: string;
+    current_version_number: number;
+    approved_at: string | null;
+    published_at: string | null;
+    project_report_versions:
+      | {
+          version_number: number;
+          generated_data: Record<string, unknown>;
+          human_notes: string | null;
+          created_at: string;
+        }
+      | {
+          version_number: number;
+          generated_data: Record<string, unknown>;
+          human_notes: string | null;
+          created_at: string;
+        }[];
+  }[];
+  const staffDirectory = (staffDirectoryResult.data ?? []).map((employee) => {
+    const department = relationOne(
+      employee.department as
+        | { name: string; code: string }
+        | { name: string; code: string }[]
+        | null,
+    );
+    const roleRows = employee.user_roles as unknown as {
+      revoked_at: string | null;
+      role: { code: string } | { code: string }[] | null;
+    }[];
+    const roleCodes = roleRows
+      .filter((roleRow) => !roleRow.revoked_at)
+      .map((roleRow) => relationOne(roleRow.role)?.code)
+      .filter((code): code is string => Boolean(code));
+    return {
+      id: employee.id,
+      name: employee.full_name,
+      department: department?.name ?? null,
+      departmentCode: department?.code ?? null,
+      roleCodes,
+    };
+  });
+  const litigationManagers = staffDirectory.filter((employee) =>
+    employee.roleCodes.includes("litigation_manager"),
+  );
+  const litigationAssignees = staffDirectory.filter((employee) =>
+    employee.roleCodes.some((roleCode) =>
+      ["lawyer", "legal_specialist", "litigation_manager"].includes(roleCode),
+    ),
+  );
+  const activeProjectMemberIds = new Set(
+    memberDirectory.map((member) => member.id),
+  );
+  const availableEstateStaff = staffDirectory.filter(
+    (employee) => !activeProjectMemberIds.has(employee.id),
+  );
 
   const { data: eligibleStaffRows } = project.department_id
     ? await supabase
@@ -576,6 +795,21 @@ export default async function ProjectPage({
     "estates.manage_assets",
   );
   const canManageTeams = access.permissions.includes("project_teams.manage");
+  const canManageProjectMembers = access.permissions.includes(
+    "projects.manage_members",
+  );
+  const canManageEstateReports = access.permissions.includes(
+    "estates.manage_reports",
+  );
+  const canManageEstateFinance = access.permissions.includes("finance.manage");
+  const canReviewEstateFinance =
+    access.permissions.includes("estates.manage") ||
+    access.permissions.includes("finance.approve_closure") ||
+    access.permissions.includes("system.override");
+  const canReadEstateFinance =
+    access.permissions.includes("finance.read") ||
+    access.permissions.includes("estates.manage") ||
+    access.permissions.includes("system.override");
   const canAssignAssistants = access.permissions.includes(
     "projects.assign_assistants",
   );
@@ -596,6 +830,26 @@ export default async function ProjectPage({
     project.project_type,
   );
   const isEstate = project.project_type === "estate";
+  const estateAssetNames = new Map(
+    (estateAssetsResult.data ?? []).map((asset) => [asset.id, asset.name]),
+  );
+  const estatePartyNames = new Map(
+    (estatePartiesResult.data ?? []).map((party) => [party.id, party.full_name]),
+  );
+  const approvedFinanceEntries = estateFinanceEntries.filter(
+    (entry) => entry.status === "approved",
+  );
+  const financeTotals = {
+    income: approvedFinanceEntries
+      .filter((entry) => entry.entry_type === "income")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0),
+    expense: approvedFinanceEntries
+      .filter((entry) => entry.entry_type === "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0),
+    distribution: approvedFinanceEntries
+      .filter((entry) => entry.entry_type === "distribution")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0),
+  };
   const activeWorkflowStage = stages.find((stage) =>
     ["active", "overdue"].includes(stage.status),
   );
@@ -651,6 +905,12 @@ export default async function ProjectPage({
     { code: "setup", label: "التأسيس والمسار", show: true },
     { code: "litigation", label: "المرافعة والجلسات", show: isLitigation },
     { code: "estate", label: "التركة والأصول", show: isEstate },
+    {
+      code: "estate-operations",
+      label: "الموافقات والمالية",
+      show: isEstate,
+    },
+    { code: "estate-reports", label: "التقارير", show: isEstate },
     { code: "documents", label: "المستندات", show: true },
     { code: "messages", label: "المحادثات", show: true },
   ].filter((tab) => tab.show);
@@ -1555,6 +1815,428 @@ export default async function ProjectPage({
                 <ProjectTeamForm projectId={project.id} members={memberDirectory} />
               </div>
             ) : null}
+            <div className="border-t border-line p-5">
+              <h3 className="text-sm font-bold">أعضاء مشروع التركة</h3>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {memberDirectory.map((member) => (
+                  <article key={member.id} className="border-r-2 border-line pr-3">
+                    <p className="text-sm font-bold">{member.name}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      {member.membershipRole}
+                      {member.canContactClient ? " · مصرح بالتواصل" : ""}
+                    </p>
+                    {canManageProjectMembers &&
+                    ![project.project_manager_id, project.primary_assignee_id].includes(
+                      member.id,
+                    ) ? (
+                      <EstateProjectMemberRemoveForm
+                        projectId={project.id}
+                        userId={member.id}
+                      />
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+              {canManageProjectMembers && availableEstateStaff.length ? (
+                <div className="mt-5 border-t border-line pt-5">
+                  <EstateProjectMemberForm
+                    projectId={project.id}
+                    staff={availableEstateStaff}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {view === "estate-operations" && isEstate ? (
+        <div className="mt-6 space-y-7">
+          {canReadEstateFinance ? (
+            <section className="grid gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-3">
+              {[
+                { label: "الإيرادات المعتمدة", value: financeTotals.income },
+                { label: "المصروفات المعتمدة", value: financeTotals.expense },
+                { label: "التوزيعات المعتمدة", value: financeTotals.distribution },
+              ].map((item) => (
+                <article key={item.label} className="bg-surface p-5">
+                  <p className="text-xs text-muted">{item.label}</p>
+                  <p className="mt-2 text-xl font-bold tabular-nums">
+                    {new Intl.NumberFormat("ar-SA", {
+                      style: "currency",
+                      currency: "SAR",
+                      maximumFractionDigits: 2,
+                    }).format(item.value)}
+                  </p>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          <div className="grid gap-7 xl:grid-cols-2">
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+                <WalletCards className="size-5 text-brand" aria-hidden="true" />
+                <h2 className="font-bold">حسابات الورثة البنكية</h2>
+              </div>
+              <div className="divide-y divide-line">
+                {(estatePartiesResult.data ?? []).map((party) => {
+                  const accounts = estateBankAccounts.filter(
+                    (account) => account.estate_party_id === party.id,
+                  );
+                  return (
+                    <article key={party.id} className="px-5 py-4">
+                      <p className="font-bold">{party.full_name}</p>
+                      <div className="mt-3 space-y-3">
+                        {accounts.length ? (
+                          accounts.map((account) => (
+                            <div key={account.id} className="border-r-2 border-line pr-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="font-mono text-sm" dir="ltr">
+                                    {account.iban}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted">
+                                    {account.bank_name ?? "البنك غير محدد"}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`text-xs font-bold ${
+                                    account.is_verified
+                                      ? "text-emerald-700"
+                                      : "text-amber-700"
+                                  }`}
+                                >
+                                  {account.is_verified ? "متحقق" : "بانتظار التحقق"}
+                                </span>
+                              </div>
+                              {canManageEstate ? (
+                                <EstateBankVerificationForm
+                                  projectId={project.id}
+                                  accountId={account.id}
+                                  verified={account.is_verified}
+                                />
+                              ) : null}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted">لا يوجد حساب مسجل.</p>
+                        )}
+                      </div>
+                      {canManageEstateParties ? (
+                        <EstateBankAccountForm
+                          projectId={project.id}
+                          partyId={party.id}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+                <BadgeCheck className="size-5 text-gold" aria-hidden="true" />
+                <h2 className="font-bold">الموافقات والمخالصات</h2>
+              </div>
+              <div className="divide-y divide-line">
+                {(estatePartiesResult.data ?? []).map((party) => {
+                  const decisions = estateDecisions.filter(
+                    (decision) => decision.estate_party_id === party.id,
+                  );
+                  return (
+                    <article key={party.id} className="px-5 py-4">
+                      <p className="font-bold">{party.full_name}</p>
+                      <div className="mt-3 space-y-2">
+                        {decisions.length ? (
+                          decisions.map((decision) => (
+                            <div key={decision.id} className="border-r-2 border-line pr-3">
+                              <p className="text-sm font-bold">
+                                {labelFor(
+                                  estateDecisionTypeLabels,
+                                  decision.decision_type,
+                                )}{" "}
+                                · {decision.subject_type}
+                              </p>
+                              <p className="mt-1 text-xs text-muted">
+                                {labelFor(
+                                  estateDecisionStatusLabels,
+                                  decision.status,
+                                )}
+                                {decision.notes ? ` · ${decision.notes}` : ""}
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted">لا توجد قرارات مسجلة.</p>
+                        )}
+                      </div>
+                      {canManageEstateParties ? (
+                        <EstateDecisionForm
+                          projectId={project.id}
+                          partyId={party.id}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+
+          {canReadEstateFinance ? (
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <WalletCards className="size-5 text-brand" aria-hidden="true" />
+                  <h2 className="font-bold">المركز المالي للتركة</h2>
+                </div>
+                <span className="text-xs text-muted">
+                  {estateFinanceEntries.length} قيد
+                </span>
+              </div>
+              <div className="divide-y divide-line">
+                {estateFinanceEntries.length ? (
+                  estateFinanceEntries.map((entry) => (
+                    <article key={entry.id} className="px-5 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-bold">
+                            {labelFor(estateFinancialTypeLabels, entry.entry_type)} ·{" "}
+                            {entry.description}
+                          </p>
+                          <p className="mt-1 text-xs text-muted">
+                            {entry.occurred_on}
+                            {entry.estate_asset_id
+                              ? ` · ${estateAssetNames.get(entry.estate_asset_id) ?? "أصل"}`
+                              : ""}
+                            {entry.estate_party_id
+                              ? ` · ${estatePartyNames.get(entry.estate_party_id) ?? "طرف"}`
+                              : ""}
+                          </p>
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold tabular-nums">
+                            {new Intl.NumberFormat("ar-SA", {
+                              style: "currency",
+                              currency: entry.currency.trim(),
+                            }).format(Number(entry.amount))}
+                          </p>
+                          <p className="mt-1 text-xs text-muted">
+                            {labelFor(estateFinancialStatusLabels, entry.status)}
+                          </p>
+                        </div>
+                      </div>
+                      {entry.review_notes ? (
+                        <p className="mt-3 text-xs text-muted">
+                          ملاحظة المراجعة: {entry.review_notes}
+                        </p>
+                      ) : null}
+                      {entry.status === "submitted" && canReviewEstateFinance ? (
+                        <EstateFinancialReviewForm
+                          projectId={project.id}
+                          entryId={entry.id}
+                        />
+                      ) : null}
+                    </article>
+                  ))
+                ) : (
+                  <p className="px-5 py-8 text-sm text-muted">
+                    لم تسجل قيود مالية بعد.
+                  </p>
+                )}
+              </div>
+              {canManageEstateFinance ? (
+                <div className="border-t border-line p-5">
+                  <h3 className="mb-4 text-sm font-bold">إضافة قيد مالي</h3>
+                  <EstateFinancialEntryForm
+                    projectId={project.id}
+                    assets={(estateAssetsResult.data ?? []).map((asset) => ({
+                      id: asset.id,
+                      name: asset.name,
+                    }))}
+                    parties={(estatePartiesResult.data ?? []).map((party) => ({
+                      id: party.id,
+                      name: party.full_name,
+                    }))}
+                  />
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="rounded-md border border-line bg-surface">
+            <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+              <Gavel className="size-5 text-brand" aria-hidden="true" />
+              <h2 className="font-bold">تقاضي التركة عند الحاجة</h2>
+            </div>
+            <div className="divide-y divide-line">
+              {(estateLitigationProjectsResult.data ?? []).length ? (
+                (estateLitigationProjectsResult.data ?? []).map((litigationProject) => (
+                  <article
+                    key={litigationProject.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+                  >
+                    <div>
+                      <p className="text-sm font-bold">{litigationProject.name}</p>
+                      <p className="mt-1 text-xs text-muted">
+                        {litigationProject.project_number} ·{" "}
+                        {labelFor(projectStatusLabels, litigationProject.status)}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/workspace/projects/${litigationProject.id}`}
+                      className="text-xs font-bold text-brand"
+                    >
+                      فتح مشروع التقاضي
+                    </Link>
+                  </article>
+                ))
+              ) : (
+                <p className="px-5 py-8 text-sm text-muted">
+                  لا يوجد مسار تقاضٍ مرتبط بالتركة.
+                </p>
+              )}
+            </div>
+            {canManageEstate &&
+            litigationCategoriesResult.data?.length &&
+            litigationManagers.length &&
+            litigationAssignees.length ? (
+              <div className="border-t border-line p-5">
+                <EstateLitigationReferralForm
+                  projectId={project.id}
+                  categories={litigationCategoriesResult.data}
+                  managers={litigationManagers}
+                  assignees={litigationAssignees}
+                />
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
+      {view === "estate-reports" && isEstate ? (
+        <div className="mt-6 space-y-7">
+          <section className="border-y border-line bg-surface px-5 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-muted">دورة التقرير</p>
+                <h2 className="mt-1 font-bold">تقرير موضوعي وإجرائي ومالي كل 90 يومًا</h2>
+              </div>
+              <div className="text-left text-xs text-muted">
+                <p>
+                  الفترة القادمة:{" "}
+                  <strong className="text-foreground">
+                    {estateReportScheduleResult.data?.next_period_ends_on ??
+                      "تُحدد عند إنشاء أول تقرير"}
+                  </strong>
+                </p>
+                <p className="mt-1">الإعداد خلال 15 يوم عمل</p>
+              </div>
+            </div>
+          </section>
+
+          {canManageEstateReports ? (
+            <section className="rounded-md border border-line bg-surface p-5">
+              <div className="mb-4 flex items-center gap-3">
+                <FileChartColumn className="size-5 text-brand" aria-hidden="true" />
+                <h2 className="font-bold">إنشاء تقرير دوري</h2>
+              </div>
+              <EstateReportCreateForm projectId={project.id} />
+            </section>
+          ) : null}
+
+          <section className="rounded-md border border-line bg-surface">
+            <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+              <div className="flex items-center gap-3">
+                <FileChartColumn className="size-5 text-gold" aria-hidden="true" />
+                <h2 className="font-bold">إصدارات التقارير</h2>
+              </div>
+              <span className="text-xs text-muted">{estateReports.length} تقرير</span>
+            </div>
+            <div className="divide-y divide-line">
+              {estateReports.length ? (
+                estateReports.map((report) => {
+                  const versions = relationMany(report.project_report_versions);
+                  const version =
+                    versions.find(
+                      (candidate) =>
+                        candidate.version_number === report.current_version_number,
+                    ) ?? versions.at(-1);
+                  const generated = version?.generated_data as
+                    | {
+                        parties?: { total?: number; heirs?: number; minors?: number };
+                        assets?: {
+                          total?: number;
+                          active?: number;
+                          sold?: number;
+                          distributed?: number;
+                        };
+                        workflow?: {
+                          completed_actions?: number;
+                          open_actions?: number;
+                          overdue_actions?: number;
+                        };
+                      }
+                    | undefined;
+                  const canTransition =
+                    (report.status === "draft" && canManageEstateReports) ||
+                    (report.status === "submitted" &&
+                      (canManageEstate || access.permissions.includes("system.override"))) ||
+                    (report.status === "approved" &&
+                      access.permissions.includes("documents.publish")) ||
+                    (report.status === "published" &&
+                      access.permissions.includes("documents.withdraw"));
+                  return (
+                    <article key={report.id} className="px-5 py-5">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <p className="font-bold">
+                            {report.period_start} إلى {report.period_end}
+                          </p>
+                          <p className="mt-1 text-xs text-muted">
+                            نسخة {report.current_version_number} ·{" "}
+                            {labelFor(estateReportStatusLabels, report.status)}
+                          </p>
+                        </div>
+                        <span className="text-xs text-muted">
+                          الاستحقاق {dateTime.format(new Date(report.due_at))}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+                        <p>
+                          الأطراف: <strong>{generated?.parties?.total ?? 0}</strong>
+                        </p>
+                        <p>
+                          الأصول: <strong>{generated?.assets?.total ?? 0}</strong>
+                        </p>
+                        <p>
+                          الإجراءات المفتوحة:{" "}
+                          <strong>{generated?.workflow?.open_actions ?? 0}</strong>
+                        </p>
+                      </div>
+                      {version?.human_notes ? (
+                        <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-muted">
+                          {version.human_notes}
+                        </p>
+                      ) : null}
+                      {canTransition ? (
+                        <EstateReportTransitionForm
+                          projectId={project.id}
+                          reportId={report.id}
+                          status={report.status}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
+              ) : (
+                <p className="px-5 py-10 text-center text-sm text-muted">
+                  لم يُنشأ تقرير دوري بعد.
+                </p>
+              )}
+            </div>
           </section>
         </div>
       ) : null}

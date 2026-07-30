@@ -14,6 +14,22 @@ const structureMigration = readFileSync(
   "supabase/migrations/20260729120525_safe_alignment_v2.sql",
   "utf8",
 );
+const estateOperationsMigration = readFileSync(
+  "supabase/migrations/20260730133634_complete_estate_operations.sql",
+  "utf8",
+);
+const estateAssetScopeMigration = readFileSync(
+  "supabase/migrations/20260730135648_fix_estate_asset_workflow_scope.sql",
+  "utf8",
+);
+const estateLitigationClientMigration = readFileSync(
+  "supabase/migrations/20260730171500_fix_estate_litigation_client_order.sql",
+  "utf8",
+);
+const estateAuditMigration = readFileSync(
+  "supabase/migrations/20260730173000_complete_estate_audit.sql",
+  "utf8",
+);
 
 function uniqueSourceReferences(prefix: "LT" | "ES") {
   const expression =
@@ -59,6 +75,60 @@ describe("source-aligned workflow v2", () => {
       "revoke execute on function public.create_client_service_request",
     );
     expect(structureMigration).toContain("public.create_staff_service_request");
+  });
+
+  it("implements estate finance, approvals, reports, and team operations", () => {
+    expect(estateOperationsMigration).toContain(
+      "create table public.estate_financial_entries",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.verify_estate_party_bank_account",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.record_estate_party_decision",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.record_estate_financial_entry",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.create_estate_periodic_report",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.transition_estate_report",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.assign_estate_project_member",
+    );
+    expect(estateOperationsMigration).toContain(
+      "create or replace function public.create_estate_litigation_subproject",
+    );
+    expect(estateOperationsMigration).toContain(
+      "alter table public.estate_financial_entries enable row level security",
+    );
+    expect(estateAuditMigration).toContain(
+      "'estate_party_bank_accounts'",
+    );
+    expect(estateAuditMigration).toContain("'estate_party_decisions'");
+    expect(estateAuditMigration).toContain("'project_reports'");
+    expect(estateAuditMigration).toContain("'project_report_versions'");
+  });
+
+  it("allows each estate asset subproject to own an independent workflow", () => {
+    expect(estateAssetScopeMigration).toContain(
+      "drop constraint if exists workflow_instances_estate_asset_id_project_id_fkey",
+    );
+    expect(estateAssetScopeMigration).toContain(
+      "foreign key (estate_asset_id)",
+    );
+    expect(estateOperationsMigration).toContain(
+      "project_row.estate_asset_id",
+    );
+    expect(estateOperationsMigration).toContain(
+      "perform public.start_project_operational_workflow(new_project_id)",
+    );
+    expect(estateLitigationClientMigration).toContain(
+      "order by account.is_primary desc, account.linked_at",
+    );
   });
 });
 

@@ -892,6 +892,382 @@ export async function updateEstateAssetAction(
   return successState("تم تحديث مرحلة الأصل وحالته.");
 }
 
+export async function upsertEstateBankAccountAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      partyId: uuid,
+      iban: z
+        .string()
+        .trim()
+        .transform((value) => value.replace(/\s+/g, "").toUpperCase())
+        .pipe(z.string().min(15).max(34)),
+      bankName: z.string().trim().max(120).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      partyId: formData.get("party_id"),
+      iban: formData.get("iban"),
+      bankName: String(formData.get("bank_name") ?? "") || undefined,
+    });
+  if (!parsed.success) return errorState("راجع رقم الآيبان واسم البنك.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("upsert_estate_party_bank_account", {
+    p_estate_party_id: parsed.data.partyId,
+    p_iban: parsed.data.iban,
+    p_bank_name: parsed.data.bankName ?? null,
+    p_certificate_document_id: null,
+  });
+  if (error) {
+    return errorState(rpcError(error, "تعذر حفظ الحساب البنكي للوارث."));
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم حفظ الحساب البنكي وبانتظار تحقق مدير التركات.");
+}
+
+export async function verifyEstateBankAccountAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      accountId: uuid,
+      verified: z.enum(["true", "false"]),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      accountId: formData.get("account_id"),
+      verified: formData.get("verified"),
+    });
+  if (!parsed.success) return errorState("بيانات الحساب البنكي غير صالحة.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("verify_estate_party_bank_account", {
+    p_account_id: parsed.data.accountId,
+    p_verified: parsed.data.verified === "true",
+  });
+  if (error) return errorState(rpcError(error, "تعذر تحديث تحقق الحساب."));
+
+  refreshProject(parsed.data.projectId);
+  return successState(
+    parsed.data.verified === "true"
+      ? "تم اعتماد الحساب البنكي."
+      : "تم إلغاء اعتماد الحساب البنكي.",
+  );
+}
+
+export async function recordEstateDecisionAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      partyId: uuid,
+      decisionType: z.enum(["consent", "approval", "release", "objection"]),
+      subjectType: z.string().trim().min(2).max(120),
+      status: z.enum(["pending", "accepted", "rejected", "withdrawn"]),
+      notes: z.string().trim().max(1000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      partyId: formData.get("party_id"),
+      decisionType: formData.get("decision_type"),
+      subjectType: formData.get("subject_type"),
+      status: formData.get("status"),
+      notes: String(formData.get("notes") ?? "") || undefined,
+    });
+  if (!parsed.success) return errorState("أكمل بيانات الموافقة أو المخالصة.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("record_estate_party_decision", {
+    p_estate_party_id: parsed.data.partyId,
+    p_decision_type: parsed.data.decisionType,
+    p_subject_type: parsed.data.subjectType,
+    p_subject_id: null,
+    p_status: parsed.data.status,
+    p_notes: parsed.data.notes ?? null,
+    p_evidence_document_id: null,
+  });
+  if (error) {
+    return errorState(rpcError(error, "تعذر تسجيل موافقة الطرف."));
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم تسجيل قرار الطرف وحفظه في سجل التركة.");
+}
+
+export async function recordEstateFinancialEntryAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      entryType: z.enum([
+        "income",
+        "expense",
+        "reserve",
+        "distribution",
+        "transfer",
+      ]),
+      amount: z.coerce.number().positive(),
+      currency: z.string().trim().length(3).transform((value) => value.toUpperCase()),
+      occurredOn: z.iso.date(),
+      description: z.string().trim().min(3).max(1000),
+      assetId: z.union([uuid, z.literal("")]).optional(),
+      partyId: z.union([uuid, z.literal("")]).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      entryType: formData.get("entry_type"),
+      amount: formData.get("amount"),
+      currency: formData.get("currency") || "SAR",
+      occurredOn: formData.get("occurred_on"),
+      description: formData.get("description"),
+      assetId: formData.get("asset_id") || "",
+      partyId: formData.get("party_id") || "",
+    });
+  if (!parsed.success) return errorState("راجع بيانات القيد المالي.");
+  if (parsed.data.entryType === "distribution" && !parsed.data.partyId) {
+    return errorState("اختر الوارث أو المستفيد في قيد التوزيع.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("record_estate_financial_entry", {
+    p_estate_project_id: parsed.data.projectId,
+    p_entry_type: parsed.data.entryType,
+    p_amount: parsed.data.amount,
+    p_currency: parsed.data.currency,
+    p_occurred_on: parsed.data.occurredOn,
+    p_description: parsed.data.description,
+    p_estate_asset_id: parsed.data.assetId || null,
+    p_estate_party_id: parsed.data.partyId || null,
+    p_evidence_document_id: null,
+  });
+  if (error) return errorState(rpcError(error, "تعذر تسجيل القيد المالي."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم إرسال القيد المالي لاعتماد مدير التركات.");
+}
+
+export async function reviewEstateFinancialEntryAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      entryId: uuid,
+      decision: z.enum(["approved", "rejected"]),
+      reviewNotes: z.string().trim().max(1000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      entryId: formData.get("entry_id"),
+      decision: formData.get("decision"),
+      reviewNotes: String(formData.get("review_notes") ?? "") || undefined,
+    });
+  if (!parsed.success) return errorState("تعذر قراءة قرار القيد المالي.");
+  if (
+    parsed.data.decision === "rejected" &&
+    (parsed.data.reviewNotes?.length ?? 0) < 5
+  ) {
+    return errorState("اكتب سبب رفض القيد المالي.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("review_estate_financial_entry", {
+    p_entry_id: parsed.data.entryId,
+    p_decision: parsed.data.decision,
+    p_review_notes: parsed.data.reviewNotes ?? null,
+  });
+  if (error) return errorState(rpcError(error, "تعذر مراجعة القيد المالي."));
+
+  refreshProject(parsed.data.projectId);
+  return successState(
+    parsed.data.decision === "approved"
+      ? "تم اعتماد القيد المالي."
+      : "تم رفض القيد المالي مع حفظ السبب.",
+  );
+}
+
+export async function createEstateReportAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      periodEnd: z.iso.date(),
+      humanNotes: z.string().trim().max(5000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      periodEnd: formData.get("period_end"),
+      humanNotes: String(formData.get("human_notes") ?? "") || undefined,
+    });
+  if (!parsed.success) return errorState("حدد نهاية فترة التقرير.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("create_estate_periodic_report", {
+    p_estate_project_id: parsed.data.projectId,
+    p_period_end: parsed.data.periodEnd,
+    p_human_notes: parsed.data.humanNotes ?? null,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إنشاء التقرير الدوري."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم إنشاء مسودة التقرير من بيانات النظام.");
+}
+
+export async function transitionEstateReportAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      reportId: uuid,
+      newStatus: z.enum(["submitted", "approved", "published", "withdrawn"]),
+      humanNotes: z.string().trim().max(5000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      reportId: formData.get("report_id"),
+      newStatus: formData.get("new_status"),
+      humanNotes: String(formData.get("human_notes") ?? "") || undefined,
+    });
+  if (!parsed.success) return errorState("تعذر قراءة انتقال التقرير.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("transition_estate_report", {
+    p_report_id: parsed.data.reportId,
+    p_new_status: parsed.data.newStatus,
+    p_human_notes: parsed.data.humanNotes ?? null,
+  });
+  if (error) return errorState(rpcError(error, "تعذر تحديث التقرير الدوري."));
+
+  refreshProject(parsed.data.projectId);
+  const messages = {
+    submitted: "تم إرسال التقرير للمراجعة.",
+    approved: "تم اعتماد التقرير.",
+    published: "تم نشر التقرير للعميل.",
+    withdrawn: "تم سحب التقرير من العميل.",
+  };
+  return successState(messages[parsed.data.newStatus]);
+}
+
+export async function assignEstateProjectMemberAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      userId: uuid,
+      membershipRole: z.enum([
+        "department_manager",
+        "project_manager",
+        "executor",
+        "follower",
+        "finance",
+        "litigation",
+        "observer",
+      ]),
+      canContactClient: z.boolean(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      userId: formData.get("user_id"),
+      membershipRole: formData.get("membership_role"),
+      canContactClient: formData.get("can_contact_client") === "on",
+    });
+  if (!parsed.success) return errorState("اختر الموظف ودوره داخل التركة.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("assign_estate_project_member", {
+    p_estate_project_id: parsed.data.projectId,
+    p_user_id: parsed.data.userId,
+    p_membership_role: parsed.data.membershipRole,
+    p_can_contact_client: parsed.data.canContactClient,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إضافة عضو مشروع التركة."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تمت إضافة الموظف إلى مشروع التركة ومشاريع أصولها.");
+}
+
+export async function removeEstateProjectMemberAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      userId: uuid,
+      reason: z.string().trim().min(5).max(1000),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      userId: formData.get("user_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) return errorState("اكتب سبب إنهاء عضوية الموظف.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_estate_project_member", {
+    p_estate_project_id: parsed.data.projectId,
+    p_user_id: parsed.data.userId,
+    p_reason: parsed.data.reason,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إنهاء عضوية الموظف."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم إنهاء العضوية مع الاحتفاظ بسجل الأعمال السابق.");
+}
+
+export async function createEstateLitigationSubprojectAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      name: z.string().trim().min(3).max(200),
+      categoryId: uuid,
+      projectManagerId: uuid,
+      primaryAssigneeId: uuid,
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      name: formData.get("name"),
+      categoryId: formData.get("category_id"),
+      projectManagerId: formData.get("project_manager_id"),
+      primaryAssigneeId: formData.get("primary_assignee_id"),
+    });
+  if (!parsed.success) return errorState("أكمل بيانات إحالة نزاع التركة.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("create_estate_litigation_subproject", {
+    p_estate_project_id: parsed.data.projectId,
+    p_name: parsed.data.name,
+    p_category_id: parsed.data.categoryId,
+    p_project_manager_id: parsed.data.projectManagerId,
+    p_primary_assignee_id: parsed.data.primaryAssigneeId,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إنشاء مشروع تقاضي التركة."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تمت إحالة النزاع إلى إدارة التقاضي وتشغيل خارطة سيره.");
+}
+
 export async function createProjectTeamAction(
   _state: ActionState,
   formData: FormData,

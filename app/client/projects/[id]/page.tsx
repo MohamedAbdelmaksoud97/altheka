@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BriefcaseBusiness,
   Download,
+  FileChartColumn,
   FileText,
   MessageSquareText,
   UserRoundCheck,
@@ -46,7 +47,11 @@ export default async function ClientProjectPage({
   const project = projects?.[0];
   if (!project) notFound();
 
-  const [{ data: documents }, { data: conversations }] = await Promise.all([
+  const [
+    { data: documents },
+    { data: conversations },
+    { data: estateReports },
+  ] = await Promise.all([
     supabase
       .from("documents")
       .select(
@@ -62,6 +67,11 @@ export default async function ClientProjectPage({
       .eq("conversation_type", "client")
       .is("archived_at", null)
       .maybeSingle(),
+    project.project_type === "estate"
+      ? supabase.rpc("get_my_client_estate_reports", {
+          p_project_id: project.id,
+        })
+      : Promise.resolve({ data: [] }),
   ]);
 
   const { data: messages } = conversations
@@ -208,6 +218,57 @@ export default async function ClientProjectPage({
           </div>
         </aside>
       </div>
+
+      {project.project_type === "estate" && estateReports?.length ? (
+        <section className="mt-7 rounded-md border border-line bg-surface">
+          <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+            <FileChartColumn className="size-5 text-brand" aria-hidden="true" />
+            <h2 className="font-bold">التقارير الدورية المعتمدة</h2>
+          </div>
+          <div className="divide-y divide-line">
+            {estateReports.map((report: {
+              id: string;
+              period_start: string;
+              period_end: string;
+              published_at: string | null;
+              human_notes: string | null;
+              generated_data: Record<string, unknown>;
+            }) => {
+              const generated = report.generated_data as {
+                parties?: { total?: number };
+                assets?: { total?: number; sold?: number; distributed?: number };
+                workflow?: { completed_actions?: number; open_actions?: number };
+              };
+              return (
+                <article key={report.id} className="px-5 py-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold">
+                        تقرير {report.period_start} إلى {report.period_end}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        نُشر{" "}
+                        {report.published_at
+                          ? dateTime.format(new Date(report.published_at))
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted">
+                      <span>الأصول {generated.assets?.total ?? 0}</span>
+                      <span>المكتمل {generated.workflow?.completed_actions ?? 0}</span>
+                    </div>
+                  </div>
+                  {report.human_notes ? (
+                    <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-muted">
+                      {report.human_notes}
+                    </p>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
     </AppShell>
   );
 }
