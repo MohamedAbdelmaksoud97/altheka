@@ -185,6 +185,191 @@ export async function setNextActionAction(
   return successState("تم تثبيت الإجراء القادم وتاريخه.");
 }
 
+export async function startLitigationActionExecutionAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      actionId: uuid,
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      actionId: formData.get("action_id"),
+    });
+  if (!parsed.success) return errorState("معرف الإجراء غير صالح.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("start_litigation_case_action", {
+    p_action_id: parsed.data.actionId,
+  });
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر بدء الإجراء. تأكد أنه مسند إليك وما زال الإجراء الحالي."),
+    );
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState("بدأ تنفيذ الإجراء وسجل وقت البدء.");
+}
+
+export async function submitLitigationActionResponseAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      actionId: uuid,
+      resultSummary: z.string().trim().min(5).max(5000),
+      executionNotes: z.string().trim().max(5000).optional(),
+      nextActionTitle: z.string().trim().min(3).max(240),
+      nextActionPriority: z.enum(["normal", "high", "critical"]),
+      documentTitle: z.string().trim().max(200).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      actionId: formData.get("action_id"),
+      resultSummary: formData.get("result_summary"),
+      executionNotes:
+        String(formData.get("execution_notes") ?? "").trim() || undefined,
+      nextActionTitle: formData.get("next_action_title"),
+      nextActionPriority: formData.get("next_action_priority") || "high",
+      documentTitle:
+        String(formData.get("document_title") ?? "").trim() || undefined,
+    });
+  const nextActionDueAt = optionalDateTime(formData.get("next_action_due_at"));
+  const nextActionLegalDueDate =
+    String(formData.get("next_action_legal_due_date") ?? "").trim() || null;
+  if (!parsed.success || (!nextActionDueAt && !nextActionLegalDueDate)) {
+    return errorState("أكمل نتيجة التنفيذ واقترح إجراءً تاليًا مع موعد فعلي أو قانوني.");
+  }
+
+  const fileEntry = formData.get("file");
+  const file =
+    fileEntry instanceof File && fileEntry.size > 0 ? fileEntry : null;
+  if (file && file.size > DOCUMENT_MAX_BYTES) {
+    return errorState("الحد الأقصى لحجم المرفق 25 ميجابايت.");
+  }
+  if (file && !DOCUMENT_ALLOWED_MIME_TYPES.has(file.type)) {
+    return errorState("نوع المرفق غير مدعوم.");
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return errorState("انتهت جلسة الدخول.");
+
+  let storagePath: string | null = null;
+  let fileBytes: Buffer | null = null;
+  const bucket = "legal-documents";
+  if (file) {
+    fileBytes = Buffer.from(await file.arrayBuffer());
+    const extension = file.name.includes(".")
+      ? `.${file.name
+          .split(".")
+          .pop()
+          ?.replace(/[^a-zA-Z0-9]/g, "")
+          .toLowerCase()}`
+      : "";
+    storagePath = `${user.id}/projects/${parsed.data.projectId}/litigation-actions/${randomUUID()}${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, fileBytes, {
+        contentType: file.type,
+        upsert: false,
+      });
+    if (uploadError) return errorState("تعذر رفع المرفق إلى التخزين الخاص.");
+  }
+
+  const { error } = await supabase.rpc(
+    "submit_litigation_action_response",
+    {
+      p_action_id: parsed.data.actionId,
+      p_result_summary: parsed.data.resultSummary,
+      p_next_action_title: parsed.data.nextActionTitle,
+      p_execution_notes: parsed.data.executionNotes ?? null,
+      p_next_action_due_at: nextActionDueAt,
+      p_next_action_legal_due_date: nextActionLegalDueDate,
+      p_next_action_priority: parsed.data.nextActionPriority,
+      p_document_title: file
+        ? parsed.data.documentTitle || file.name
+        : null,
+      p_document_type: file ? "litigation_action_result" : null,
+      p_storage_bucket: file ? bucket : null,
+      p_storage_path: storagePath,
+      p_file_name: file?.name ?? null,
+      p_mime_type: file?.type ?? null,
+      p_byte_size: file?.size ?? null,
+      p_sha256: fileBytes
+        ? createHash("sha256").update(fileBytes).digest("hex")
+        : null,
+    },
+  );
+  if (error) {
+    if (storagePath) {
+      await createAdminClient().storage.from(bucket).remove([storagePath]);
+    }
+    return errorState(
+      rpcError(error, "تعذر إرسال نتيجة الإجراء للاعتماد."),
+    );
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState("أرسلت نتيجة الإجراء إلى مدير إدارة التقاضي للاعتماد.");
+}
+
+export async function reviewLitigationActionResponseAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      submissionId: uuid,
+      decision: z.enum(["approved", "returned_for_revision"]),
+      reviewNotes: z.string().trim().max(3000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      submissionId: formData.get("submission_id"),
+      decision: formData.get("decision"),
+      reviewNotes:
+        String(formData.get("review_notes") ?? "").trim() || undefined,
+    });
+  if (
+    !parsed.success ||
+    (parsed.data.decision === "returned_for_revision" &&
+      (parsed.data.reviewNotes?.length ?? 0) < 3)
+  ) {
+    return errorState("أضف ملاحظات واضحة عند إعادة الإجراء للتعديل.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc(
+    "review_litigation_action_response",
+    {
+      p_submission_id: parsed.data.submissionId,
+      p_decision: parsed.data.decision,
+      p_review_notes: parsed.data.reviewNotes ?? null,
+    },
+  );
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر حفظ قرار مراجعة الإجراء."),
+    );
+  }
+
+  refreshProject(parsed.data.projectId);
+  return successState(
+    parsed.data.decision === "approved"
+      ? "اعتمدت النتيجة وأنشئ الإجراء التالي تلقائيًا."
+      : "أعيد الإجراء إلى المكلف مع الملاحظات.",
+  );
+}
+
 export async function scheduleHearingAction(
   _state: ActionState,
   formData: FormData,

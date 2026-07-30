@@ -117,6 +117,8 @@ test("client sees only the simplified published project view", async ({
     memberRows,
     workflowRows,
     litigationRows,
+    litigationSubmissionRows,
+    litigationReviewRows,
     estatePartyRows,
     clientProjectRows,
   ] = await Promise.all([
@@ -133,6 +135,8 @@ test("client sees only the simplified published project view", async ({
       .from("litigation_cases")
       .select("id")
       .eq("project_id", litigationProjectId),
+    client.from("litigation_action_submissions").select("id"),
+    client.from("litigation_action_submission_reviews").select("id"),
     client
       .from("estate_parties")
       .select("id")
@@ -145,6 +149,8 @@ test("client sees only the simplified published project view", async ({
   expect(memberRows.data).toEqual([]);
   expect(workflowRows.data).toEqual([]);
   expect(litigationRows.data).toEqual([]);
+  expect(litigationSubmissionRows.data).toEqual([]);
+  expect(litigationReviewRows.data).toEqual([]);
   expect(estatePartyRows.data).toEqual([]);
   expect(clientProjectRows.data).toHaveLength(1);
 

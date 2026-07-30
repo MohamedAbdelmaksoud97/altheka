@@ -18,7 +18,7 @@
 | المهام | `tasks.create`, `tasks.assign`, `tasks.reassign`, `tasks.submit`, `tasks.approve`, `tasks.return_for_revision`, `tasks.extend` |
 | المستندات | `documents.upload`, `documents.read_internal`, `documents.publish`, `documents.withdraw`, `documents.archive` |
 | المحادثات | `messages.client`, `messages.internal`, `messages.moderate` |
-| التقاضي | `litigation.manage_cases`, `litigation.manage_hearings`, `litigation.set_next_action` |
+| التقاضي | `litigation.manage_cases`, `litigation.manage_hearings`, `litigation.set_next_action`, `litigation.actions.respond`, `litigation.actions.approve`, `litigation.actions.return_for_revision` |
 | التركات | `estates.manage`, `estates.manage_parties`, `estates.manage_assets`, `estates.manage_reports` |
 | المالية | `finance.read`, `finance.manage`, `finance.approve_closure`, `collections.escalate` |
 | الإدارة | `staff.approve`, `roles.assign`, `roles.manage`, `audit.read`, `system.override` |
@@ -29,12 +29,12 @@
 |---|---|
 | `super_admin` | جميع الصلاحيات والتدخل الاستثنائي، دون أن يصبح طرفًا تشغيليًا تلقائيًا |
 | `new_clients_manager` | العملاء والطلبات والدراسة والعروض والعقود والتحويل، وإدارة فريق ما قبل التعاقد |
-| `litigation_manager` | كل مشاريع التقاضي في إدارته، الاعتماد، العضويات، القوالب والانتقالات |
-| `litigation_secretary` | متابعة المشاريع والمواعيد، تشكيل الفريق المصرح، المحادثات والمستندات، دون اعتماد دراسة أو تكليف نفسه |
+| `litigation_manager` | كل مشاريع التقاضي في إدارته، اعتماد أو إعادة نتائج الإجراءات، العضويات، القوالب والانتقالات |
+| `litigation_secretary` | متابعة المشاريع والمواعيد، وتنفيذ الإجراء إذا أسنده المدير إليه، وتشكيل الفريق المصرح، دون اعتماد النتيجة أو تكليف نفسه |
 | `estates_manager` | كل مشاريع التركات، الأطراف والأصول والفرق والتقارير والاعتماد |
 | `estates_secretary` | المتابعة والفرق والمستندات والتقارير المصرح بها، دون اعتماد أو تكليف ذاتي |
-| `lawyer` | تنفيذ المهام وإدارة القضية والجلسات والإجراء القادم ضمن عضويته |
-| `legal_specialist` | التنفيذ والدراسة ضمن عضويته ونطاق تكليفه |
+| `lawyer` | بدء الإجراء المسند إليه، وتقديم نتيجته ومرفقه واقتراح الإجراء التالي، دون اعتماد عمله |
+| `legal_specialist` | تنفيذ الإجراء المسند وتقديم نتيجته ضمن عضويته ونطاق تكليفه، دون اعتماد عمله |
 | `accountant` | الفواتير والدفعات والتحصيل والمستندات المالية ضمن نطاق المشروع |
 | `executive_manager` | قراءة شاملة واعتماد الإقفال والتصعيد المحدد، بلا اعتماد يومي افتراضي |
 
@@ -61,4 +61,3 @@
 - مدير المشروع ومدير الإدارة وSuper Admin يبدأون Workflow.
 - التجاوز وإعادة الفتح لمدير المشروع أو مدير الإدارة أو Super Admin، مع سبب
   إجباري وحفظ الحالة السابقة والجديدة والأثر.
-

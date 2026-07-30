@@ -26,12 +26,15 @@ import {
   EstateShareForm,
   HearingForm,
   HearingOutcomeForm,
+  LitigationActionResponseForm,
+  LitigationActionReviewForm,
   LitigationCaseForm,
   NextActionForm,
   ProjectDocumentForm,
   ProjectDocumentPublicationForm,
   ProjectMessageForm,
   ProjectTeamForm,
+  StartLitigationActionForm,
   StartWorkflowForm,
   WorkflowActionControl,
 } from "@/components/projects/forms";
@@ -100,15 +103,64 @@ type ActionRow = {
         needs_operational_confirmation: boolean;
       }[];
 };
+type LitigationSubmissionReviewRow = {
+  id: string;
+  decision: string;
+  review_notes: string | null;
+  reviewed_by: string;
+  reviewed_at: string;
+};
+type LitigationSubmissionDocumentRow = {
+  document_id: string;
+  documents:
+    | { id: string; title: string; client_visibility_status: string }
+    | { id: string; title: string; client_visibility_status: string }[]
+    | null;
+};
+type LitigationSubmissionRow = {
+  id: string;
+  litigation_action_id: string;
+  version_number: number;
+  result_summary: string;
+  execution_notes: string | null;
+  proposed_next_action_title: string;
+  proposed_next_action_due_at: string | null;
+  proposed_next_action_legal_due_date: string | null;
+  proposed_next_action_priority: string;
+  submitted_by: string;
+  submitted_at: string;
+  litigation_action_submission_reviews:
+    | LitigationSubmissionReviewRow
+    | LitigationSubmissionReviewRow[]
+    | null;
+  litigation_action_submission_documents:
+    | LitigationSubmissionDocumentRow
+    | LitigationSubmissionDocumentRow[]
+    | null;
+};
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const litigationActionStatusLabels: Record<string, string> = {
+  planned: "بانتظار البدء",
+  in_progress: "قيد التنفيذ",
+  awaiting_approval: "بانتظار الاعتماد",
+  returned_for_revision: "معاد للتعديل",
+  completed: "مكتمل ومعتمد",
+  cancelled: "ملغي",
+  superseded: "مستبدل",
+};
 
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function relationMany<T>(value: T | T[] | null | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 function stageData(stage: StageRow) {
@@ -265,7 +317,7 @@ export default async function ProjectPage({
         supabase
           .from("litigation_case_actions")
           .select(
-            "id, title, action_type, due_at, legal_due_date, status, priority, assigned_to, hearing_id, created_at",
+            "id, title, action_type, due_at, legal_due_date, status, priority, assigned_to, hearing_id, started_at, submitted_at, submitted_by, approved_at, approved_by, returned_at, returned_by, return_reason, created_at",
           )
           .eq("litigation_case_id", litigationCase.id)
           .order("created_at", { ascending: false }),
@@ -278,6 +330,27 @@ export default async function ProjectPage({
           .order("hearing_at", { ascending: false }),
       ])
     : [{ data: [] }, { data: [] }];
+
+  const litigationActionIds = (caseActionsResult.data ?? []).map(
+    (action) => action.id,
+  );
+  const { data: litigationSubmissionData } = litigationActionIds.length
+    ? await supabase
+        .from("litigation_action_submissions")
+        .select(
+          "id, litigation_action_id, version_number, result_summary, execution_notes, proposed_next_action_title, proposed_next_action_due_at, proposed_next_action_legal_due_date, proposed_next_action_priority, submitted_by, submitted_at, litigation_action_submission_reviews(id, decision, review_notes, reviewed_by, reviewed_at), litigation_action_submission_documents(document_id, documents(id, title, client_visibility_status))",
+        )
+        .in("litigation_action_id", litigationActionIds)
+        .order("version_number", { ascending: false })
+    : { data: [] };
+  const litigationSubmissions =
+    (litigationSubmissionData ?? []) as unknown as LitigationSubmissionRow[];
+  const latestSubmissionByAction = new Map<string, LitigationSubmissionRow>();
+  for (const submission of litigationSubmissions) {
+    if (!latestSubmissionByAction.has(submission.litigation_action_id)) {
+      latestSubmissionByAction.set(submission.litigation_action_id, submission);
+    }
+  }
 
   const conversationIds = (conversationsResult.data ?? []).map(
     (conversation) => conversation.id,
@@ -303,6 +376,20 @@ export default async function ProjectPage({
   const currentAction = (caseActionsResult.data ?? []).find(
     (action) => action.id === litigationCase?.current_next_action_id,
   );
+  const currentSubmission = currentAction
+    ? latestSubmissionByAction.get(currentAction.id) ?? null
+    : null;
+  const currentSubmissionReview = currentSubmission
+    ? relationOne(currentSubmission.litigation_action_submission_reviews)
+    : null;
+  const currentSubmissionDocuments = currentSubmission
+    ? relationMany(
+        currentSubmission.litigation_action_submission_documents,
+      )
+    : [];
+  const currentAssigneeName =
+    memberDirectory.find((member) => member.id === currentAction?.assigned_to)
+      ?.name ?? "غير مسند";
   const completedActions = actions.filter((action) =>
     ["approved", "completed"].includes(action.status),
   ).length;
@@ -314,6 +401,18 @@ export default async function ProjectPage({
     access.permissions.includes("system.override") ||
     project.project_manager_id === access.userId;
   const canManageCase = access.permissions.includes("litigation.manage_cases");
+  const canSetNextAction = access.permissions.includes(
+    "litigation.set_next_action",
+  );
+  const canRespondToLitigationAction = access.permissions.includes(
+    "litigation.actions.respond",
+  );
+  const canApproveLitigationAction = access.permissions.includes(
+    "litigation.actions.approve",
+  );
+  const canReturnLitigationAction = access.permissions.includes(
+    "litigation.actions.return_for_revision",
+  );
   const canManageHearings = access.permissions.includes(
     "litigation.manage_hearings",
   );
@@ -689,20 +788,137 @@ export default async function ProjectPage({
                 </div>
                 <div className="p-5">
                   {currentAction ? (
-                    <div className="mb-5 border-r-4 border-gold pr-4">
-                      <p className="font-bold">{currentAction.title}</p>
-                      <p className="mt-1 text-sm text-muted">
-                        {currentAction.due_at
-                          ? dateTime.format(new Date(currentAction.due_at))
-                          : currentAction.legal_due_date}
-                      </p>
+                    <div className="space-y-5">
+                      <div className="border-r-4 border-gold pr-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-bold">{currentAction.title}</p>
+                            <p className="mt-1 text-sm text-muted">
+                              {currentAction.due_at
+                                ? dateTime.format(new Date(currentAction.due_at))
+                                : currentAction.legal_due_date}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              المكلف: {currentAssigneeName}
+                            </p>
+                          </div>
+                          <span className="rounded-md border border-line px-3 py-1 text-xs font-bold">
+                            {litigationActionStatusLabels[currentAction.status] ??
+                              currentAction.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {currentSubmission ? (
+                        <div className="space-y-3 border-t border-line pt-5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-bold">
+                              نتيجة التنفيذ، الإصدار {currentSubmission.version_number}
+                            </p>
+                            <span className="text-xs text-muted">
+                              {dateTime.format(
+                                new Date(currentSubmission.submitted_at),
+                              )}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-7">
+                            {currentSubmission.result_summary}
+                          </p>
+                          {currentSubmission.execution_notes ? (
+                            <p className="text-sm leading-7 text-muted">
+                              {currentSubmission.execution_notes}
+                            </p>
+                          ) : null}
+                          <div className="border-r-2 border-brand pr-3 text-sm">
+                            <p className="font-bold">الإجراء التالي المقترح</p>
+                            <p className="mt-1">
+                              {currentSubmission.proposed_next_action_title}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              {currentSubmission.proposed_next_action_due_at
+                                ? dateTime.format(
+                                    new Date(
+                                      currentSubmission.proposed_next_action_due_at,
+                                    ),
+                                  )
+                                : currentSubmission.proposed_next_action_legal_due_date}
+                            </p>
+                          </div>
+                          {currentSubmissionDocuments.length ? (
+                            <div className="flex flex-wrap gap-2">
+                              {currentSubmissionDocuments.map((link) => {
+                                const document = relationOne(link.documents);
+                                return document ? (
+                                  <Link
+                                    key={link.document_id}
+                                    href={`/workspace/projects/${project.id}?view=documents`}
+                                    className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs font-bold hover:border-brand"
+                                  >
+                                    <FileText
+                                      className="size-4"
+                                      aria-hidden="true"
+                                    />
+                                    {document.title}
+                                  </Link>
+                                ) : null;
+                              })}
+                            </div>
+                          ) : null}
+                          {currentSubmissionReview ? (
+                            <p className="rounded-md border border-line bg-subtle px-3 py-2 text-sm">
+                              {currentSubmissionReview.decision === "approved"
+                                ? "اعتمدت النتيجة"
+                                : `أعيدت للتعديل: ${currentSubmissionReview.review_notes ?? ""}`}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {currentAction.assigned_to === access.userId &&
+                      canRespondToLitigationAction &&
+                      currentAction.status === "planned" ? (
+                        <div className="border-t border-line pt-5">
+                          <StartLitigationActionForm
+                            projectId={project.id}
+                            actionId={currentAction.id}
+                          />
+                        </div>
+                      ) : null}
+
+                      {currentAction.assigned_to === access.userId &&
+                      canRespondToLitigationAction &&
+                      ["in_progress", "returned_for_revision"].includes(
+                        currentAction.status,
+                      ) ? (
+                        <div className="border-t border-line pt-5">
+                          <LitigationActionResponseForm
+                            projectId={project.id}
+                            actionId={currentAction.id}
+                            returnedReason={currentAction.return_reason}
+                          />
+                        </div>
+                      ) : null}
+
+                      {currentAction.status === "awaiting_approval" &&
+                      currentSubmission &&
+                      !currentSubmissionReview &&
+                      currentSubmission.submitted_by !== access.userId &&
+                      (canApproveLitigationAction ||
+                        canReturnLitigationAction) ? (
+                        <div className="border-t border-line pt-5">
+                          <LitigationActionReviewForm
+                            projectId={project.id}
+                            submissionId={currentSubmission.id}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="mb-5 text-sm font-bold text-red-700">
                       القضية لا تحتوي على إجراء قادم.
                     </p>
                   )}
-                  {canManageCase ? (
+                  {!currentAction && canSetNextAction ? (
                     <NextActionForm
                       projectId={project.id}
                       caseId={litigationCase.id}
@@ -783,39 +999,46 @@ export default async function ProjectPage({
                 <h2 className="font-bold">ملف المتابعة</h2>
               </div>
               <div className="divide-y divide-line">
-                {(caseActionsResult.data ?? []).map((action) => (
-                  <article
-                    key={action.id}
-                    className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_12rem_auto] md:items-center"
-                  >
-                    <div>
-                      <p className="text-sm font-bold">{action.title}</p>
-                      <p className="mt-1 text-xs text-muted">
-                        {action.due_at
-                          ? dateTime.format(new Date(action.due_at))
-                          : action.legal_due_date ?? "دون موعد"}
-                      </p>
-                    </div>
-                    <span className="text-xs font-bold text-muted">
-                      {action.status === "planned"
-                        ? "مخطط"
-                        : action.status === "in_progress"
-                          ? "قيد التنفيذ"
-                          : action.status === "completed"
-                            ? "مكتمل"
-                            : "مستبدل"}
-                    </span>
-                    {action.id !== litigationCase.current_next_action_id ? (
-                      <CaseActionStatusForm
-                        projectId={project.id}
-                        actionId={action.id}
-                        status={action.status}
-                      />
-                    ) : (
-                      <span className="text-xs font-bold text-gold">الإجراء الحالي</span>
-                    )}
-                  </article>
-                ))}
+                {(caseActionsResult.data ?? []).map((action) => {
+                  const submission = latestSubmissionByAction.get(action.id);
+                  return (
+                    <article
+                      key={action.id}
+                      className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_12rem_auto] md:items-center"
+                    >
+                      <div>
+                        <p className="text-sm font-bold">{action.title}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          {action.due_at
+                            ? dateTime.format(new Date(action.due_at))
+                            : action.legal_due_date ?? "دون موعد"}
+                        </p>
+                        {submission ? (
+                          <p className="mt-2 line-clamp-2 text-xs leading-6 text-muted">
+                            {submission.result_summary}
+                          </p>
+                        ) : null}
+                      </div>
+                      <span className="text-xs font-bold text-muted">
+                        {litigationActionStatusLabels[action.status] ??
+                          action.status}
+                      </span>
+                      {action.id !== litigationCase.current_next_action_id ? (
+                        canManageCase ? (
+                          <CaseActionStatusForm
+                            projectId={project.id}
+                            actionId={action.id}
+                            status={action.status}
+                          />
+                        ) : null
+                      ) : (
+                        <span className="text-xs font-bold text-gold">
+                          الإجراء الحالي
+                        </span>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             </section>
           ) : null}

@@ -12,8 +12,12 @@ import {
   Gavel,
   LoaderCircle,
   MessageSquareText,
+  Paperclip,
   Plus,
+  RotateCcw,
   Save,
+  Send,
+  ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import {
@@ -23,11 +27,14 @@ import {
   operateWorkflowAction,
   recordEstateShareAction,
   recordHearingOutcomeAction,
+  reviewLitigationActionResponseAction,
   scheduleHearingAction,
   sendProjectMessageAction,
   setCaseActionStatusAction,
   setNextActionAction,
+  startLitigationActionExecutionAction,
   startProjectWorkflowAction,
+  submitLitigationActionResponseAction,
   updateEstateAssetAction,
   updateProjectDocumentPublicationAction,
   uploadProjectDocumentAction,
@@ -65,11 +72,15 @@ function SubmitButton({
   icon: Icon = Save,
   tone = "brand",
   compact = false,
+  name,
+  value,
 }: {
   label: string;
   icon?: typeof Save;
   tone?: "brand" | "neutral" | "success";
   compact?: boolean;
+  name?: string;
+  value?: string;
 }) {
   const { pending } = useFormStatus();
   const toneClass =
@@ -81,6 +92,8 @@ function SubmitButton({
   return (
     <button
       type="submit"
+      name={name}
+      value={value}
       disabled={pending}
       className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "px-3 text-xs" : "px-5 text-sm"} ${toneClass}`}
     >
@@ -274,6 +287,169 @@ export function NextActionForm({
       </div>
       <div className="sm:col-span-2">
         <SubmitButton label="تثبيت الإجراء القادم" icon={ArrowUpLeft} />
+      </div>
+    </form>
+  );
+}
+
+export function StartLitigationActionForm({
+  projectId,
+  actionId,
+}: {
+  projectId: string;
+  actionId: string;
+}) {
+  const [state, action] = useActionState(
+    startLitigationActionExecutionAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="action_id" value={actionId} />
+      <ActionNotice state={state} />
+      <SubmitButton label="بدء تنفيذ الإجراء" icon={CirclePlay} />
+    </form>
+  );
+}
+
+export function LitigationActionResponseForm({
+  projectId,
+  actionId,
+  returnedReason,
+}: {
+  projectId: string;
+  actionId: string;
+  returnedReason?: string | null;
+}) {
+  const [state, action] = useActionState(
+    submitLitigationActionResponseAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="action_id" value={actionId} />
+      {returnedReason ? (
+        <p className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          ملاحظات الإعادة: {returnedReason}
+        </p>
+      ) : null}
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">نتيجة التنفيذ</span>
+        <textarea
+          name="result_summary"
+          rows={4}
+          required
+          className={textareaClass}
+        />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">ملاحظات التنفيذ</span>
+        <textarea name="execution_notes" rows={3} className={textareaClass} />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 block text-sm font-bold">الإجراء التالي المقترح</span>
+        <input
+          name="next_action_title"
+          required
+          className={inputClass}
+          placeholder="الإجراء الذي يلي اعتماد النتيجة"
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">موعد الإجراء التالي</span>
+        <input
+          name="next_action_due_at"
+          type="datetime-local"
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">موعده القانوني</span>
+        <input
+          name="next_action_legal_due_date"
+          type="date"
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">الأولوية</span>
+        <select
+          name="next_action_priority"
+          defaultValue="high"
+          className={inputClass}
+        >
+          <option value="normal">عادية</option>
+          <option value="high">عالية</option>
+          <option value="critical">قصوى</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">عنوان المرفق</span>
+        <input
+          name="document_title"
+          className={inputClass}
+          placeholder="اختياري"
+        />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="mb-2 flex items-center gap-2 text-sm font-bold">
+          <Paperclip className="size-4" aria-hidden="true" />
+          مرفق النتيجة
+        </span>
+        <input
+          name="file"
+          type="file"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+          className="block w-full rounded-md border border-line bg-white px-3 py-2 text-sm file:ml-3 file:rounded-md file:border-0 file:bg-subtle file:px-3 file:py-2 file:font-bold"
+        />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إرسال النتيجة للاعتماد" icon={Send} />
+      </div>
+    </form>
+  );
+}
+
+export function LitigationActionReviewForm({
+  projectId,
+  submissionId,
+}: {
+  projectId: string;
+  submissionId: string;
+}) {
+  const [state, action] = useActionState(
+    reviewLitigationActionResponseAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="space-y-4">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="submission_id" value={submissionId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">ملاحظات المراجعة</span>
+        <textarea name="review_notes" rows={3} className={textareaClass} />
+      </label>
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-3">
+        <SubmitButton
+          label="اعتماد وإنشاء الإجراء التالي"
+          icon={ShieldCheck}
+          tone="success"
+          name="decision"
+          value="approved"
+        />
+        <SubmitButton
+          label="إعادة للتعديل"
+          icon={RotateCcw}
+          tone="neutral"
+          name="decision"
+          value="returned_for_revision"
+        />
       </div>
     </form>
   );

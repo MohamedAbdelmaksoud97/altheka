@@ -14,6 +14,7 @@
     "test:auth-live": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config=playwright.live.config.ts --workers=1",
     "test:flow-live": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config=playwright.flow.config.ts --workers=1",
     "test:demo-live": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config=playwright.demo.config.ts --workers=1",
+    "test:litigation-live": "node --env-file=.env.local node_modules/@playwright/test/cli.js test --config=playwright.litigation.config.ts --workers=1",
     "bootstrap:admin": "node scripts/bootstrap-super-admin.mjs",
     "seed:demo": "node --env-file=.env.local scripts/seed-demo-operations.mjs",
     "seed:demo-roles": "node --env-file=.env.local scripts/seed-demo-role-accounts.mjs"
