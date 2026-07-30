@@ -52,11 +52,11 @@ import {
   ProjectAssistantForm,
   ProjectMessageForm,
   RemoveProjectAssistantForm,
-  ProjectTeamForm,
   StartLitigationActionForm,
   StartWorkflowForm,
   WorkflowActionControl,
 } from "@/components/projects/forms";
+import { ProjectTeamsPanel } from "@/components/projects/teams-panel";
 import { getAccessContext } from "@/lib/auth/access";
 import {
   actionStatusTone,
@@ -84,6 +84,24 @@ type ProjectAssigneeRow = {
   assignment_kind: "primary" | "assistant";
   assigned_at: string;
   profiles: Profile | Profile[] | null;
+};
+type ProjectTeamMemberRow = {
+  user_id: string;
+  team_role: "leader" | "member" | "observer";
+  joined_at: string;
+  left_at: string | null;
+  profiles: Profile | Profile[] | null;
+};
+type ProjectTeamRow = {
+  id: string;
+  code: string;
+  name: string;
+  leader_id: string | null;
+  stage_instance_id: string | null;
+  status: "planned" | "active" | "completed" | "cancelled";
+  starts_at: string | null;
+  ends_at: string | null;
+  project_team_members: ProjectTeamMemberRow[] | ProjectTeamMemberRow | null;
 };
 type AttentionNoticeRow = {
   id: string;
@@ -336,7 +354,9 @@ export default async function ProjectPage({
       .order("created_at"),
     supabase
       .from("project_teams")
-      .select("id, code, name, leader_id, status, project_team_members(user_id, team_role)")
+      .select(
+        "id, code, name, leader_id, stage_instance_id, status, starts_at, ends_at, project_team_members(user_id, team_role, joined_at, left_at, profiles!project_team_members_user_id_fkey(id, full_name))",
+      )
       .eq("project_id", id)
       .order("created_at"),
     supabase
@@ -795,6 +815,7 @@ export default async function ProjectPage({
     "estates.manage_assets",
   );
   const canManageTeams = access.permissions.includes("project_teams.manage");
+  const canAssignTeams = access.permissions.includes("project_teams.assign");
   const canManageProjectMembers = access.permissions.includes(
     "projects.manage_members",
   );
@@ -853,6 +874,28 @@ export default async function ProjectPage({
   const activeWorkflowStage = stages.find((stage) =>
     ["active", "overdue"].includes(stage.status),
   );
+  const teamStageOptions = stages.map((stage) => ({
+    id: stage.id,
+    name: stageData(stage)?.name ?? "مرحلة Workflow",
+  }));
+  const projectTeams = (teamsResult.data ?? []) as unknown as ProjectTeamRow[];
+  const teamPanelData = projectTeams.map((team) => ({
+    id: team.id,
+    code: team.code,
+    name: team.name,
+    leaderId: team.leader_id,
+    stageInstanceId: team.stage_instance_id,
+    status: team.status,
+    startsAt: team.starts_at,
+    endsAt: team.ends_at,
+    members: relationMany(team.project_team_members)
+      .filter((member) => !member.left_at)
+      .map((member) => ({
+        id: member.user_id,
+        name: relationOne(member.profiles)?.full_name ?? "موظف",
+        role: member.team_role,
+      })),
+  }));
   const activeWorkflowStageCode = activeWorkflowStage
     ? stageData(activeWorkflowStage)?.code
     : null;
@@ -911,6 +954,7 @@ export default async function ProjectPage({
       show: isEstate,
     },
     { code: "estate-reports", label: "التقارير", show: isEstate },
+    { code: "teams", label: "فرق العمل", show: !isEstate },
     { code: "documents", label: "المستندات", show: true },
     { code: "messages", label: "المحادثات", show: true },
   ].filter((tab) => tab.show);
@@ -1658,6 +1702,19 @@ export default async function ProjectPage({
         </div>
       ) : null}
 
+      {view === "teams" && !isEstate ? (
+        <div className="mt-6">
+          <ProjectTeamsPanel
+            projectId={project.id}
+            teams={teamPanelData}
+            projectMembers={memberDirectory}
+            stages={teamStageOptions}
+            canManage={canManageTeams}
+            canAssign={canAssignTeams}
+          />
+        </div>
+      ) : null}
+
       {view === "estate" && isEstate ? (
         <div className="mt-6 space-y-7">
           <section className="rounded-md border border-line bg-surface">
@@ -1791,30 +1848,15 @@ export default async function ProjectPage({
             </section>
           </div>
 
+          <ProjectTeamsPanel
+            projectId={project.id}
+            teams={teamPanelData}
+            projectMembers={memberDirectory}
+            stages={teamStageOptions}
+            canManage={canManageTeams}
+            canAssign={canAssignTeams}
+          />
           <section className="rounded-md border border-line bg-surface">
-            <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
-              <div className="flex items-center gap-3">
-                <UsersRound className="size-5 text-brand" aria-hidden="true" />
-                <h2 className="font-bold">فرق العمل</h2>
-              </div>
-              <span className="text-xs text-muted">{teamsResult.data?.length ?? 0} فريق</span>
-            </div>
-            <div className="grid gap-px bg-line sm:grid-cols-2">
-              {(teamsResult.data ?? []).map((team) => (
-                <article key={team.id} className="bg-surface p-5">
-                  <p className="font-bold">{team.name}</p>
-                  <p className="mt-1 text-xs text-muted">{team.code}</p>
-                  <p className="mt-4 text-sm">
-                    {(team.project_team_members as unknown as unknown[])?.length ?? 0} عضو
-                  </p>
-                </article>
-              ))}
-            </div>
-            {canManageTeams ? (
-              <div className="border-t border-line p-5">
-                <ProjectTeamForm projectId={project.id} members={memberDirectory} />
-              </div>
-            ) : null}
             <div className="border-t border-line p-5">
               <h3 className="text-sm font-bold">أعضاء مشروع التركة</h3>
               <div className="mt-4 grid gap-4 md:grid-cols-2">

@@ -28,6 +28,7 @@ import {
   acknowledgeAttentionNoticeAction,
   activateLitigationWorkflowStageAction,
   assignEstateProjectMemberAction,
+  assignProjectTeamMemberAction,
   assignProjectAssistantAction,
   createEstateAssetAction,
   createEstateLitigationSubprojectAction,
@@ -41,6 +42,7 @@ import {
   recordEstateShareAction,
   recordHearingOutcomeAction,
   removeEstateProjectMemberAction,
+  removeProjectTeamMemberAction,
   removeProjectAssistantAction,
   reviewEstateFinancialEntryAction,
   reviewLitigationActionResponseAction,
@@ -55,6 +57,7 @@ import {
   updateEstateAssetAction,
   updateProjectCategoryAction,
   updateProjectDocumentPublicationAction,
+  updateProjectTeamAction,
   upsertEstateBankAccountAction,
   uploadProjectDocumentAction,
   upsertEstateDetailsAction,
@@ -1603,32 +1606,233 @@ export function EstateLitigationReferralForm({
 export function ProjectTeamForm({
   projectId,
   members,
+  stages,
 }: {
   projectId: string;
   members: { id: string; name: string }[];
+  stages: { id: string; name: string }[];
 }) {
   const [state, action] = useActionState(
     createProjectTeamAction,
     initialActionState,
   );
   return (
-    <form action={action} className="grid gap-3 sm:grid-cols-3">
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
       <input type="hidden" name="project_id" value={projectId} />
-      <input name="code" required className={inputClass} placeholder="رمز الفريق" />
-      <input name="name" required className={inputClass} placeholder="اسم الفريق" />
-      <select name="leader_id" className={inputClass}>
-        <option value="">دون قائد مؤقتًا</option>
+      <label>
+        <span className="mb-2 block text-sm font-bold">رمز الفريق</span>
+        <input name="code" required className={inputClass} placeholder="inventory" />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">اسم الفريق</span>
+        <input name="name" required className={inputClass} placeholder="فريق الحصر" />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">قائد الفريق</span>
+        <select name="leader_id" className={inputClass}>
+          <option value="">دون قائد مؤقتًا</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">المرحلة</span>
+        <select name="stage_instance_id" className={inputClass}>
+          <option value="">جميع المراحل المطابقة للرمز</option>
+          {stages.map((stage) => (
+            <option key={stage.id} value={stage.id}>
+              {stage.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">بداية الفريق</span>
+        <input name="starts_at" type="datetime-local" className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">نهاية الفريق</span>
+        <input name="ends_at" type="datetime-local" className={inputClass} />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="إنشاء فريق" icon={UsersRound} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectTeamUpdateForm({
+  projectId,
+  team,
+  members,
+  stages,
+}: {
+  projectId: string;
+  team: {
+    id: string;
+    name: string;
+    status: string;
+    leaderId: string | null;
+    stageInstanceId: string | null;
+    startsAt: string | null;
+    endsAt: string | null;
+  };
+  members: { id: string; name: string }[];
+  stages: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    updateProjectTeamAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-4 grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="team_id" value={team.id} />
+      <label>
+        <span className="mb-2 block text-xs font-bold">اسم الفريق</span>
+        <input name="name" required defaultValue={team.name} className={inputClass} />
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">الحالة</span>
+        <select name="status" defaultValue={team.status} className={inputClass}>
+          <option value="planned">مخطط</option>
+          <option value="active">نشط</option>
+          <option value="completed">مكتمل</option>
+          <option value="cancelled">ملغى</option>
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">القائد</span>
+        <select
+          name="leader_id"
+          defaultValue={team.leaderId ?? ""}
+          className={inputClass}
+        >
+          <option value="">دون قائد</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">المرحلة</span>
+        <select
+          name="stage_instance_id"
+          defaultValue={team.stageInstanceId ?? ""}
+          className={inputClass}
+        >
+          <option value="">كل المراحل المطابقة</option>
+          {stages.map((stage) => (
+            <option key={stage.id} value={stage.id}>
+              {stage.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">البداية</span>
+        <input
+          name="starts_at"
+          type="datetime-local"
+          defaultValue={team.startsAt?.slice(0, 16) ?? ""}
+          className={inputClass}
+        />
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">النهاية</span>
+        <input
+          name="ends_at"
+          type="datetime-local"
+          defaultValue={team.endsAt?.slice(0, 16) ?? ""}
+          className={inputClass}
+        />
+      </label>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+      <div className="sm:col-span-2">
+        <SubmitButton label="حفظ إعدادات الفريق" icon={Save} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectTeamMemberForm({
+  projectId,
+  teamId,
+  members,
+}: {
+  projectId: string;
+  teamId: string;
+  members: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    assignProjectTeamMemberAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px_auto]">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="team_id" value={teamId} />
+      <select name="user_id" required defaultValue="" className={inputClass}>
+        <option value="" disabled>
+          اختر عضوًا من المشروع
+        </option>
         {members.map((member) => (
           <option key={member.id} value={member.id}>
             {member.name}
           </option>
         ))}
       </select>
+      <select name="team_role" defaultValue="member" className={inputClass}>
+        <option value="leader">قائد</option>
+        <option value="member">عضو منفذ</option>
+        <option value="observer">متابع</option>
+      </select>
+      <SubmitButton label="إضافة أو تعديل" icon={UserPlus} />
       <div className="sm:col-span-3">
         <ActionNotice state={state} />
       </div>
-      <div className="sm:col-span-3">
-        <SubmitButton label="إنشاء فريق" icon={UsersRound} />
+    </form>
+  );
+}
+
+export function ProjectTeamMemberRemoveForm({
+  projectId,
+  teamId,
+  userId,
+}: {
+  projectId: string;
+  teamId: string;
+  userId: string;
+}) {
+  const [state, action] = useActionState(
+    removeProjectTeamMemberAction,
+    initialActionState,
+  );
+  return (
+    <form action={action} className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="team_id" value={teamId} />
+      <input type="hidden" name="user_id" value={userId} />
+      <input
+        name="reason"
+        required
+        minLength={5}
+        className={inputClass}
+        placeholder="سبب إنهاء العضوية"
+      />
+      <SubmitButton label="إزالة" icon={UserMinus} />
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
       </div>
     </form>
   );

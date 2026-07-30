@@ -30,6 +30,26 @@ const estateAuditMigration = readFileSync(
   "supabase/migrations/20260730173000_complete_estate_audit.sql",
   "utf8",
 );
+const operationalTeamsMigration = readFileSync(
+  "supabase/migrations/20260730180000_operational_project_teams.sql",
+  "utf8",
+);
+const teamScopeMigration = readFileSync(
+  "supabase/migrations/20260730182500_backfill_project_team_scope.sql",
+  "utf8",
+);
+const teamEligibilityMigration = readFileSync(
+  "supabase/migrations/20260730184500_team_executor_eligibility.sql",
+  "utf8",
+);
+const teamRoleSyncMigration = readFileSync(
+  "supabase/migrations/20260730190000_resync_team_member_roles.sql",
+  "utf8",
+);
+const teamWorkScopeMigration = readFileSync(
+  "supabase/migrations/20260730191500_team_active_work_scope.sql",
+  "utf8",
+);
 
 function uniqueSourceReferences(prefix: "LT" | "ES") {
   const expression =
@@ -128,6 +148,39 @@ describe("source-aligned workflow v2", () => {
     );
     expect(estateLitigationClientMigration).toContain(
       "order by account.is_primary desc, account.linked_at",
+    );
+  });
+
+  it("uses active project teams as operational workflow executors", () => {
+    expect(operationalTeamsMigration).toContain(
+      "private.sync_workflow_project_team_assignments",
+    );
+    expect(operationalTeamsMigration).toContain(
+      "rule.selector_type = 'project_team'",
+    );
+    expect(operationalTeamsMigration).toContain(
+      "create or replace function public.update_project_team",
+    );
+    expect(operationalTeamsMigration).toContain(
+      "create or replace function public.remove_project_team_member",
+    );
+    expect(teamScopeMigration).toContain(
+      "resolved_from_project_team:",
+    );
+    expect(teamScopeMigration).toContain(
+      "child.project_type = 'estate_asset'",
+    );
+    expect(teamEligibilityMigration).toContain(
+      "team_member.team_role in (''leader'', ''member'')",
+    );
+    expect(teamEligibilityMigration).toContain(
+      "role.code = 'accountant'",
+    );
+    expect(teamRoleSyncMigration).toContain(
+      "private.remove_ineligible_project_team_assignments",
+    );
+    expect(teamWorkScopeMigration).toContain(
+      "''in_progress'', ''returned_for_revision''",
     );
   });
 });

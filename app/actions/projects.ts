@@ -1277,28 +1277,141 @@ export async function createProjectTeamAction(
       projectId: uuid,
       code: z.string().trim().min(2).max(80),
       name: z.string().trim().min(2).max(160),
+      stageInstanceId: z.union([uuid, z.literal("")]).optional(),
       leaderId: z.union([uuid, z.literal("")]).optional(),
+      startsAt: z.string().optional(),
+      endsAt: z.string().optional(),
     })
     .safeParse({
       projectId: formData.get("project_id"),
       code: formData.get("code"),
       name: formData.get("name"),
+      stageInstanceId: formData.get("stage_instance_id") || "",
       leaderId: formData.get("leader_id") || "",
+      startsAt: optionalDateTime(formData.get("starts_at")) ?? undefined,
+      endsAt: optionalDateTime(formData.get("ends_at")) ?? undefined,
     });
   if (!parsed.success) return errorState("أكمل اسم الفريق ورمزه.");
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("create_project_team", {
+  const { error } = await supabase.rpc("create_project_team_v2", {
     p_project_id: parsed.data.projectId,
     p_code: parsed.data.code,
     p_name: parsed.data.name,
-    p_stage_instance_id: null,
+    p_stage_instance_id: parsed.data.stageInstanceId || null,
     p_leader_id: parsed.data.leaderId || null,
+    p_starts_at: parsed.data.startsAt || null,
+    p_ends_at: parsed.data.endsAt || null,
   });
   if (error) return errorState(rpcError(error, "تعذر إنشاء فريق المشروع."));
 
   refreshProject(parsed.data.projectId);
   return successState("تم إنشاء فريق المشروع.");
+}
+
+export async function assignProjectTeamMemberAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      teamId: uuid,
+      userId: uuid,
+      teamRole: z.enum(["leader", "member", "observer"]),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      teamId: formData.get("team_id"),
+      userId: formData.get("user_id"),
+      teamRole: formData.get("team_role"),
+    });
+  if (!parsed.success) return errorState("اختر عضو الفريق ودوره.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("assign_project_team_member", {
+    p_project_team_id: parsed.data.teamId,
+    p_user_id: parsed.data.userId,
+    p_team_role: parsed.data.teamRole,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إضافة عضو الفريق."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم تحديث عضوية الفريق وإسناد إجراءاته المفتوحة.");
+}
+
+export async function updateProjectTeamAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      teamId: uuid,
+      name: z.string().trim().min(2).max(160),
+      status: z.enum(["planned", "active", "completed", "cancelled"]),
+      stageInstanceId: z.union([uuid, z.literal("")]).optional(),
+      leaderId: z.union([uuid, z.literal("")]).optional(),
+      startsAt: z.string().optional(),
+      endsAt: z.string().optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      teamId: formData.get("team_id"),
+      name: formData.get("name"),
+      status: formData.get("status"),
+      stageInstanceId: formData.get("stage_instance_id") || "",
+      leaderId: formData.get("leader_id") || "",
+      startsAt: optionalDateTime(formData.get("starts_at")) ?? undefined,
+      endsAt: optionalDateTime(formData.get("ends_at")) ?? undefined,
+    });
+  if (!parsed.success) return errorState("راجع اسم الفريق وحالته وتواريخه.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_project_team", {
+    p_project_team_id: parsed.data.teamId,
+    p_name: parsed.data.name,
+    p_status: parsed.data.status,
+    p_stage_instance_id: parsed.data.stageInstanceId || null,
+    p_leader_id: parsed.data.leaderId || null,
+    p_starts_at: parsed.data.startsAt || null,
+    p_ends_at: parsed.data.endsAt || null,
+  });
+  if (error) return errorState(rpcError(error, "تعذر تحديث فريق المشروع."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم تحديث الفريق ومزامنة إسناد Workflow.");
+}
+
+export async function removeProjectTeamMemberAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      teamId: uuid,
+      userId: uuid,
+      reason: z.string().trim().min(5).max(500),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      teamId: formData.get("team_id"),
+      userId: formData.get("user_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) return errorState("اكتب سبب إزالة العضو بوضوح.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_project_team_member", {
+    p_project_team_id: parsed.data.teamId,
+    p_user_id: parsed.data.userId,
+    p_reason: parsed.data.reason,
+  });
+  if (error) return errorState(rpcError(error, "تعذر إزالة عضو الفريق."));
+
+  refreshProject(parsed.data.projectId);
+  return successState("تم إنهاء عضوية الفريق مع حفظ الأعمال السابقة.");
 }
 
 export async function sendProjectMessageAction(
