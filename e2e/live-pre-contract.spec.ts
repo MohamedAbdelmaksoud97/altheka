@@ -355,8 +355,20 @@ test("completes the registered-client to project journey", async ({
       .getByLabel("معتمد الدراسة")
       .selectOption(litigationManagerUserId);
     await adminUi.page.getByRole("button", { name: "حفظ التكليف" }).click();
+
     await login(lawyerUi.page, lawyerEmail, lawyerPassword);
-    await lawyerUi.page.goto(`/workspace/requests/${requestId}`);
+    await expect(lawyerUi.page).toHaveURL(/\/workspace$/, {
+      timeout: 30_000,
+    });
+    await lawyerUi.page.getByTitle("مهامي قبل التعاقد").click();
+    await expect(
+      lawyerUi.page.getByRole("heading", { name: "مهامي قبل التعاقد" }),
+    ).toBeVisible();
+    await lawyerUi.page
+      .getByRole("link", {
+        name: new RegExp(`مطالبة مالية تجريبية ${runId}`),
+      })
+      .click();
     await expect(
       lawyerUi.page.getByRole("heading", { name: "إعداد الدراسة القانونية" }),
     ).toBeVisible({ timeout: 30_000 });
@@ -373,8 +385,20 @@ test("completes the registered-client to project journey", async ({
     await lawyerUi.page
       .getByRole("button", { name: "إرسال الدراسة للاعتماد" })
       .click();
+
     await login(managerUi.page, managerEmail, managerPassword);
-    await managerUi.page.goto(`/workspace/requests/${requestId}`);
+    await expect(managerUi.page).toHaveURL(/\/workspace$/, {
+      timeout: 30_000,
+    });
+    await managerUi.page.getByTitle("طلبات العملاء").click();
+    await managerUi.page
+      .getByRole("link", { name: "بانتظار اعتمادي" })
+      .click();
+    await managerUi.page
+      .getByRole("link", {
+        name: new RegExp(`مطالبة مالية تجريبية ${runId}`),
+      })
+      .click();
     await expect(
       managerUi.page.getByRole("button", { name: "اعتماد الدراسة" }),
     ).toBeVisible({ timeout: 30_000 });

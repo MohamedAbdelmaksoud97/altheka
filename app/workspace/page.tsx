@@ -27,6 +27,12 @@ export default async function WorkspacePage() {
   const supabase = await createClient();
   const canApproveStaff = access.permissions.includes("staff.approve");
   const canManageRequests = access.permissions.includes("requests.manage");
+  const canWorkPreContract = [
+    "studies.submit",
+    "studies.approve_litigation",
+    "studies.approve_estates",
+  ].some((permission) => access.permissions.includes(permission));
+  const canOpenRequests = canManageRequests || canWorkPreContract;
 
   const [
     projectsResult,
@@ -225,12 +231,14 @@ export default async function WorkspacePage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            {canManageRequests ? (
+            {canOpenRequests ? (
               <Link
                 href="/workspace/requests"
                 className="inline-flex h-11 items-center gap-2 rounded-md bg-brand px-4 font-bold text-white hover:bg-brand-strong"
               >
-                طلبات العملاء
+                {canManageRequests
+                  ? "طلبات العملاء"
+                  : "مهامي قبل التعاقد"}
                 <ArrowLeft className="size-4" aria-hidden="true" />
               </Link>
             ) : null}

@@ -24,6 +24,12 @@ export function AppShell({
   const canApproveStaff = access.permissions.includes("staff.approve");
   const homeHref = access.accountKind === "client" ? "/client" : "/workspace";
   const canManageRequests = access.permissions.includes("requests.manage");
+  const canWorkPreContract = [
+    "studies.submit",
+    "studies.approve_litigation",
+    "studies.approve_estates",
+  ].some((permission) => access.permissions.includes(permission));
+  const canOpenRequests = canManageRequests || canWorkPreContract;
   const canOpenProjects = access.accountKind === "staff";
 
   return (
@@ -54,14 +60,22 @@ export function AppShell({
               <LayoutDashboard className="size-5" aria-hidden="true" />
               <span className="sr-only">لوحة البداية</span>
             </Link>
-            {canManageRequests ? (
+            {canOpenRequests ? (
               <Link
                 href="/workspace/requests"
-                title="طلبات العملاء"
+                title={
+                  canManageRequests
+                    ? "طلبات العملاء"
+                    : "مهامي قبل التعاقد"
+                }
                 className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
               >
                 <Files className="size-5" aria-hidden="true" />
-                <span className="sr-only">طلبات العملاء</span>
+                <span className="sr-only">
+                  {canManageRequests
+                    ? "طلبات العملاء"
+                    : "مهامي قبل التعاقد"}
+                </span>
               </Link>
             ) : null}
             {canOpenProjects ? (

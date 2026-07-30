@@ -59,8 +59,10 @@ npm audit
 
 ```powershell
 npm run seed:demo
+npm run seed:demo-roles
 ```
 
-يتوفر سيناريو العرض في [`docs/demo-runbook.md`](docs/demo-runbook.md).
+يتوفر سيناريو العرض في [`docs/demo-runbook.md`](docs/demo-runbook.md)،
+وحسابات الأدوار في [`docs/demo-accounts.md`](docs/demo-accounts.md).
 
 قرارات المشروع وافتراضاته الحالية موثقة في [`docs/assumptions.md`](docs/assumptions.md).
