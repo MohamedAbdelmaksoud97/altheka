@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   BadgeCheck,
@@ -25,12 +25,14 @@ import {
   sendProposalAction,
   submitStudyAction,
   updateDocumentPublicationAction,
+  updateRequestCategoryAction,
   uploadRequestDocumentAction,
 } from "@/app/actions/pre-contract";
 import {
   initialActionState,
   type ActionState,
 } from "@/app/actions/action-state";
+import type { LitigationCategoryOption } from "@/lib/litigation/categories";
 
 const inputClass =
   "h-11 w-full rounded-md border border-line bg-white px-3 text-sm focus:border-brand focus:outline-none";
@@ -90,13 +92,16 @@ function SubmitButton({
 
 export function CreateRequestForm({
   clients,
+  litigationCategories,
 }: {
   clients: { id: string; full_name: string; email?: string | null }[];
+  litigationCategories: LitigationCategoryOption[];
 }) {
   const [state, formAction] = useActionState(
     createRequestAction,
     initialActionState,
   );
+  const [requestType, setRequestType] = useState("litigation");
   return (
     <form action={formAction} className="space-y-4">
       <label className="block">
@@ -113,13 +118,36 @@ export function CreateRequestForm({
       </label>
       <label className="block">
         <span className="mb-2 block text-sm font-bold">نوع الخدمة</span>
-        <select name="request_type" required className={inputClass}>
+        <select
+          name="request_type"
+          required
+          value={requestType}
+          onChange={(event) => setRequestType(event.target.value)}
+          className={inputClass}
+        >
           <option value="litigation">تقاضٍ</option>
           <option value="estate">تصفية تركة</option>
           <option value="consultation">استشارة قانونية</option>
           <option value="other">خدمة قانونية أخرى</option>
         </select>
       </label>
+      {requestType === "litigation" ? (
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">نوع القضية</span>
+          <select
+            name="litigation_case_category_id"
+            required
+            className={inputClass}
+          >
+            <option value="">اختر تخصص القضية</option>
+            {litigationCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className="block">
         <span className="mb-2 block text-sm font-bold">عنوان الطلب</span>
         <input
@@ -145,6 +173,55 @@ export function CreateRequestForm({
       </label>
       <ActionNotice state={state} />
       <SubmitButton label="إنشاء الطلب وربط العميل" />
+    </form>
+  );
+}
+
+export function RequestCategoryForm({
+  requestId,
+  categories,
+  currentCategoryId,
+}: {
+  requestId: string;
+  categories: LitigationCategoryOption[];
+  currentCategoryId?: string | null;
+}) {
+  const [state, formAction] = useActionState(
+    updateRequestCategoryAction,
+    initialActionState,
+  );
+  return (
+    <form action={formAction} className="space-y-4">
+      <input type="hidden" name="request_id" value={requestId} />
+      <label className="block">
+        <span className="mb-2 block text-sm font-bold">نوع القضية</span>
+        <select
+          name="litigation_case_category_id"
+          required
+          defaultValue={currentCategoryId ?? ""}
+          className={inputClass}
+        >
+          <option value="">اختر تخصص القضية</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block">
+        <span className="mb-2 block text-sm font-bold">سبب التصنيف أو التعديل</span>
+        <input
+          name="reason"
+          required
+          minLength={5}
+          maxLength={500}
+          className={inputClass}
+          placeholder="مثال: تمت مراجعة موضوع النزاع واختصاصه"
+        />
+      </label>
+      <ActionNotice state={state} />
+      <SubmitButton label="حفظ نوع القضية" icon={Save} />
     </form>
   );
 }

@@ -168,7 +168,11 @@ export default async function RequestsPage({
     );
   }
 
-  const [{ data: requests }, { data: clients }] = await Promise.all([
+  const [
+    { data: requests },
+    { data: clients },
+    { data: litigationCategories },
+  ] = await Promise.all([
     requestQuery,
     canCreateRequests
       ? supabase
@@ -179,6 +183,13 @@ export default async function RequestsPage({
           .eq("is_active", true)
           .is("deleted_at", null)
           .order("full_name")
+      : Promise.resolve({ data: [], error: null }),
+    canCreateRequests
+      ? supabase
+          .from("litigation_case_categories")
+          .select("id, code, name, sort_order")
+          .eq("is_active", true)
+          .order("sort_order")
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -252,7 +263,17 @@ export default async function RequestsPage({
               إنشاء طلب وربط حساب العميل
             </h2>
           </div>
-          <CreateRequestForm clients={clients ?? []} />
+          <CreateRequestForm
+            clients={clients ?? []}
+            litigationCategories={(litigationCategories ?? []).map(
+              (category) => ({
+                id: category.id,
+                code: category.code,
+                name: category.name,
+                sortOrder: category.sort_order,
+              }),
+            )}
+          />
         </section>
       ) : null}
 

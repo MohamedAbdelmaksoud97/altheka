@@ -1,11 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
+  Bell,
   BriefcaseBusiness,
   Files,
   LayoutDashboard,
   LogOut,
+  ScanSearch,
   Settings2,
+  Tags,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import type { AccessContext } from "@/lib/auth/access";
@@ -31,6 +34,10 @@ export function AppShell({
   ].some((permission) => access.permissions.includes(permission));
   const canOpenRequests = canManageRequests || canWorkPreContract;
   const canOpenProjects = access.accountKind === "staff";
+  const canOpenSupervision = access.permissions.includes("supervision.read");
+  const canManageCaseCategories = access.permissions.includes(
+    "case_categories.manage",
+  );
 
   return (
     <div className="min-h-screen">
@@ -45,9 +52,9 @@ export function AppShell({
               className="size-12 shrink-0 rounded-md object-cover"
               priority
             />
-            <div className="min-w-0">
-              <p className="truncate font-bold">أساس الثقة</p>
-              <p className="truncate text-xs text-muted">منصة العمليات القانونية</p>
+            <div className="hidden min-w-0 sm:block">
+              <p className="font-bold">أساس الثقة</p>
+              <p className="text-xs text-muted">منصة العمليات القانونية</p>
             </div>
           </Link>
 
@@ -88,6 +95,27 @@ export function AppShell({
                 <span className="sr-only">المشاريع</span>
               </Link>
             ) : null}
+            {access.accountKind === "staff" &&
+            access.activationStatus === "active_staff" ? (
+              <Link
+                href="/workspace/notifications"
+                title="الإشعارات"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <Bell className="size-5" aria-hidden="true" />
+                <span className="sr-only">الإشعارات</span>
+              </Link>
+            ) : null}
+            {canOpenSupervision ? (
+              <Link
+                href="/workspace/supervision"
+                title="لوحة الإشراف"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <ScanSearch className="size-5" aria-hidden="true" />
+                <span className="sr-only">لوحة الإشراف</span>
+              </Link>
+            ) : null}
             {canApproveStaff ? (
               <Link
                 href="/admin/staff"
@@ -96,6 +124,16 @@ export function AppShell({
               >
                 <Settings2 className="size-5" aria-hidden="true" />
                 <span className="sr-only">إدارة الموظفين</span>
+              </Link>
+            ) : null}
+            {canManageCaseCategories ? (
+              <Link
+                href="/admin/case-categories"
+                title="أنواع القضايا"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <Tags className="size-5" aria-hidden="true" />
+                <span className="sr-only">أنواع القضايا</span>
               </Link>
             ) : null}
             <form action={logoutAction}>

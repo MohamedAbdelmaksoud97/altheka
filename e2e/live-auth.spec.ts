@@ -80,10 +80,11 @@ async function expectVisibleRows(
   column: string,
   value: string,
   expectedCount: number,
+  context?: string,
 ) {
   const { data, error } = await client.from(table).select("id").eq(column, value);
   if (error) throw error;
-  expect(data).toHaveLength(expectedCount);
+  expect(data, context).toHaveLength(expectedCount);
 }
 
 test("runs live registration, activation, and role access acceptance", async ({
@@ -351,7 +352,14 @@ test("runs live registration, activation, and role access acceptance", async ({
       "service_requests",
       "id",
       unassignedRequest.id,
-      ["new_clients_manager", "executive_manager"].includes(roleCode) ? 1 : 0,
+      [
+        "new_clients_manager",
+        "litigation_manager",
+        "estates_manager",
+      ].includes(roleCode)
+        ? 1
+        : 0,
+      `service request visibility for ${roleCode}`,
     );
   }
 
@@ -453,6 +461,6 @@ test("allows the first Super Admin to reach staff administration", async ({
   await page.getByTitle("إدارة الموظفين").click();
   await expect(page).toHaveURL(/\/admin\/staff$/);
   await expect(
-    page.getByRole("heading", { name: "تفعيل الموظفين" }),
+    page.getByRole("heading", { name: "إدارة الموظفين" }),
   ).toBeVisible();
 });

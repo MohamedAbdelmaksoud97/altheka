@@ -65,3 +65,15 @@
 الإجراء يدعم `awaiting_assignment`, `blocked`, `ready`, `in_progress`,
 `submitted`, `returned_for_revision`, `approved`, `completed`, `cancelled`.
 وتسجل كل إعادة إسناد أو تغيير مدة أو رؤية أو حالة في Audit Log.
+
+## الإسناد المتعدد ولفت النظر
+
+- `project_assignees` هو سجل المكلف الرئيسي والمكلفين المساعدين مع تاريخ البداية
+  والنهاية. تبقى `projects.primary_assignee_id` متزامنة للتوافق.
+- `litigation_case_action_assignees` يسمح بعدة منفذين لإجراء القضية، بينما يبقى
+  `assigned_to` قائد التنفيذ المتوافق مع الواجهات القديمة.
+- عند إضافة مساعد، يضاف منفذًا إلى إجراءات القضية وWorkflow المفتوحة؛ وتزرعه
+  Triggers في الإجراءات المستقبلية. كل تسليم يسجل المستخدم الفعلي.
+- `project_attention_notices` يرتبط بإجراء Workflow أو إجراء قضية واحد فقط،
+  ويتطلب إجراءً مفتوحًا ومكلفًا نشطًا. حالاته `sent` و`acknowledged`.
+- عمليات الإسناد والإنهاء ولفت النظر والإقرار تمر عبر RPCs أمنية وتكتب Audit.

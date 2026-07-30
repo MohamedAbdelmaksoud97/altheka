@@ -15,6 +15,8 @@
 /test-results/
 /playwright-report/
 /artifacts/
+/.npm-cache/
+/.tmp/
 
 # next.js
 /.next/

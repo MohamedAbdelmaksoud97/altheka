@@ -8,6 +8,7 @@ import {
   CalendarPlus,
   Check,
   CirclePlay,
+  BellRing,
   FileUp,
   Gavel,
   GitBranch,
@@ -19,16 +20,22 @@ import {
   Save,
   Send,
   ShieldCheck,
+  UserMinus,
+  UserPlus,
   UsersRound,
 } from "lucide-react";
 import {
+  acknowledgeAttentionNoticeAction,
   activateLitigationWorkflowStageAction,
+  assignProjectAssistantAction,
   createEstateAssetAction,
   createEstatePartyAction,
   createProjectTeamAction,
+  issueAttentionNoticeAction,
   operateWorkflowAction,
   recordEstateShareAction,
   recordHearingOutcomeAction,
+  removeProjectAssistantAction,
   reviewLitigationActionResponseAction,
   scheduleHearingAction,
   sendProjectMessageAction,
@@ -38,6 +45,7 @@ import {
   startProjectWorkflowAction,
   submitLitigationActionResponseAction,
   updateEstateAssetAction,
+  updateProjectCategoryAction,
   updateProjectDocumentPublicationAction,
   uploadProjectDocumentAction,
   upsertEstateDetailsAction,
@@ -69,6 +77,221 @@ function ActionNotice({ state }: { state: ActionState }) {
   );
 }
 
+export function ProjectAssistantForm({
+  projectId,
+  staff,
+}: {
+  projectId: string;
+  staff: { id: string; name: string; jobTitle?: string | null }[];
+}) {
+  const [state, action] = useActionState(
+    assignProjectAssistantAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">المكلف المساعد</span>
+        <select name="user_id" required className={inputClass} defaultValue="">
+          <option value="" disabled>
+            اختر موظفًا مؤهلًا
+          </option>
+          {staff.map((employee) => (
+            <option key={employee.id} value={employee.id}>
+              {employee.name}
+              {employee.jobTitle ? ` · ${employee.jobTitle}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="self-end">
+        <SubmitButton label="إضافة مكلف" icon={UserPlus} />
+      </div>
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function ProjectCategoryForm({
+  projectId,
+  categories,
+  currentCategoryId,
+}: {
+  projectId: string;
+  categories: { id: string; name: string }[];
+  currentCategoryId?: string | null;
+}) {
+  const [state, action] = useActionState(
+    updateProjectCategoryAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={action} className="mt-4 grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <label>
+        <span className="mb-2 block text-sm font-bold">نوع القضية</span>
+        <select
+          name="category_id"
+          required
+          defaultValue={currentCategoryId ?? ""}
+          className={inputClass}
+        >
+          <option value="" disabled>
+            اختر التصنيف
+          </option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold">سبب الاعتماد أو التغيير</span>
+        <input
+          name="reason"
+          required
+          minLength={5}
+          className={inputClass}
+          placeholder="مثال: مراجعة نوع القضية من مدير التقاضي"
+        />
+      </label>
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+        <SubmitButton label="اعتماد التصنيف" icon={Save} compact />
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function RemoveProjectAssistantForm({
+  projectId,
+  userId,
+}: {
+  projectId: string;
+  userId: string;
+}) {
+  const [state, action] = useActionState(
+    removeProjectAssistantAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={action} className="mt-3 flex flex-wrap items-end gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="user_id" value={userId} />
+      <label className="min-w-56 flex-1">
+        <span className="sr-only">سبب إنهاء التكليف</span>
+        <input
+          name="reason"
+          required
+          minLength={5}
+          className="h-9 w-full rounded-md border border-line bg-white px-3 text-xs focus:border-brand focus:outline-none"
+          placeholder="سبب إنهاء التكليف"
+        />
+      </label>
+      <SubmitButton
+        label="إنهاء التكليف"
+        icon={UserMinus}
+        tone="danger"
+        compact
+      />
+      <ActionNotice state={state} />
+    </form>
+  );
+}
+
+export function AttentionNoticeForm({
+  projectId,
+  subjectType,
+  subjectId,
+  assignees,
+}: {
+  projectId: string;
+  subjectType: "workflow" | "litigation";
+  subjectId: string;
+  assignees: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState(
+    issueAttentionNoticeAction,
+    initialActionState,
+  );
+
+  if (!assignees.length) {
+    return (
+      <p className="text-xs text-muted">
+        لا يوجد مكلف مسند إلى هذا الإجراء لإصدار لفت نظر له.
+      </p>
+    );
+  }
+
+  return (
+    <form action={action} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="subject_type" value={subjectType} />
+      <input type="hidden" name="subject_id" value={subjectId} />
+      <label>
+        <span className="mb-2 block text-xs font-bold">المكلف المستهدف</span>
+        <select name="target_user_id" required className={inputClass}>
+          {assignees.map((assignee) => (
+            <option key={assignee.id} value={assignee.id}>
+              {assignee.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-xs font-bold">سبب لفت النظر</span>
+        <input
+          name="reason"
+          required
+          minLength={5}
+          className={inputClass}
+          placeholder="اذكر المطلوب أو موضع التأخير"
+        />
+      </label>
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+        <SubmitButton label="إصدار لفت نظر" icon={BellRing} compact />
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function AttentionNoticeAcknowledgeForm({
+  projectId,
+  noticeId,
+}: {
+  projectId: string;
+  noticeId: string;
+}) {
+  const [state, action] = useActionState(
+    acknowledgeAttentionNoticeAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={action} className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="notice_id" value={noticeId} />
+      <input
+        name="response_text"
+        className={inputClass}
+        placeholder="رد اختياري على المشرف"
+      />
+      <SubmitButton label="تأكيد الاطلاع" icon={Check} compact />
+      <div className="sm:col-span-2">
+        <ActionNotice state={state} />
+      </div>
+    </form>
+  );
+}
+
 function SubmitButton({
   label,
   icon: Icon = Save,
@@ -79,7 +302,7 @@ function SubmitButton({
 }: {
   label: string;
   icon?: typeof Save;
-  tone?: "brand" | "neutral" | "success";
+  tone?: "brand" | "neutral" | "success" | "danger";
   compact?: boolean;
   name?: string;
   value?: string;
@@ -90,6 +313,8 @@ function SubmitButton({
       ? "border border-line bg-white text-foreground hover:border-brand"
       : tone === "success"
         ? "bg-emerald-700 text-white hover:bg-emerald-800"
+        : tone === "danger"
+          ? "bg-red-700 text-white hover:bg-red-800"
         : "bg-brand text-white hover:bg-brand-strong";
   return (
     <button

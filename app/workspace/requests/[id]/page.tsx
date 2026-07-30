@@ -69,7 +69,7 @@ export default async function WorkspaceRequestPage({
     supabase
       .from("service_requests")
       .select(
-        "id, client_id, created_by, request_type, title, summary, status, created_at, updated_at",
+        "id, client_id, created_by, request_type, litigation_case_category_id, needs_category_review, title, summary, status, created_at, updated_at",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -116,7 +116,7 @@ export default async function WorkspaceRequestPage({
     supabase.rpc("list_eligible_study_staff", { p_request_id: id }),
     supabase
       .from("projects")
-      .select("id, name, status")
+      .select("id, name, status, litigation_case_category_id")
       .eq("service_request_id", id)
       .maybeSingle(),
   ]);

@@ -2,13 +2,17 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { CheckCircle2, LoaderCircle } from "lucide-react";
-import { approveStaffAction } from "@/app/actions/admin";
+import { CheckCircle2, LoaderCircle, UserRoundX } from "lucide-react";
+import {
+  approveStaffAction,
+  rejectStaffAction,
+} from "@/app/actions/admin";
 import { initialActionState } from "@/app/actions/action-state";
 
 type Department = { id: string; name: string };
 type JobTitle = { id: string; name: string; department_id: string | null };
 type Role = { id: string; name: string; code: string };
+type Category = { id: string; code: string; name: string };
 
 function ApprovalButton() {
   const { pending } = useFormStatus();
@@ -29,15 +33,36 @@ function ApprovalButton() {
   );
 }
 
+function RejectionButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+    >
+      {pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <UserRoundX className="size-4" aria-hidden="true" />
+      )}
+      رفض الطلب
+    </button>
+  );
+}
+
 export function StaffApprovalForm({
   request,
   departments,
   jobTitles,
   roles,
+  categories,
 }: {
   request: {
     id: string;
     fullName: string;
+    email: string | null;
     phone: string | null;
     requestedDepartment: string | null;
     requestedJobTitle: string | null;
@@ -46,12 +71,24 @@ export function StaffApprovalForm({
   departments: Department[];
   jobTitles: JobTitle[];
   roles: Role[];
+  categories: Category[];
 }) {
   const [state, formAction] = useActionState(
     approveStaffAction,
     initialActionState,
   );
+  const [rejectionState, rejectionAction] = useActionState(
+    rejectStaffAction,
+    initialActionState,
+  );
   const [departmentId, setDepartmentId] = useState("");
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const supervisorRole = roles.find(
+    (role) => role.code === "litigation_supervisor",
+  );
+  const isSupervisor = supervisorRole
+    ? selectedRoleIds.includes(supervisorRole.id)
+    : false;
   const availableJobTitles = useMemo(
     () =>
       jobTitles.filter(
@@ -69,6 +106,7 @@ export function StaffApprovalForm({
         <div>
           <h2 className="font-bold">{request.fullName}</h2>
           <p className="mt-1 text-sm text-muted">
+            {request.email || "لا يوجد بريد"} ·{" "}
             {request.phone || "لا يوجد رقم تواصل"} · طلب في{" "}
             {new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" }).format(
               new Date(request.createdAt),
@@ -131,7 +169,11 @@ export function StaffApprovalForm({
         </div>
 
         <fieldset>
-          <legend className="text-sm font-bold">الأدوار المسموح بها</legend>
+          <legend className="text-sm font-bold">الأدوار والصلاحيات</legend>
+          <p className="mt-1 text-xs leading-6 text-muted">
+            الإدارة تحدد نطاق العمل، بينما تمنح الأدوار الصلاحيات الفعلية. اختر أقل
+            عدد من الأدوار اللازمة.
+          </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {roles.map((role) => (
               <label
@@ -142,6 +184,14 @@ export function StaffApprovalForm({
                   type="checkbox"
                   name="role_ids"
                   value={role.id}
+                  checked={selectedRoleIds.includes(role.id)}
+                  onChange={(event) =>
+                    setSelectedRoleIds((current) =>
+                      event.target.checked
+                        ? [...current, role.id]
+                        : current.filter((roleId) => roleId !== role.id),
+                    )
+                  }
                   className="size-4 accent-[#1f5c4e]"
                 />
                 {role.name}
@@ -149,6 +199,31 @@ export function StaffApprovalForm({
             ))}
           </div>
         </fieldset>
+
+        {isSupervisor ? (
+          <fieldset>
+            <legend className="text-sm font-bold">تخصصات الإشراف</legend>
+            <p className="mt-1 text-xs leading-6 text-muted">
+              اختر تخصصًا واحدًا على الأقل. تظهر للمشرف القضايا المطابقة فقط.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {categories.map((category) => (
+                <label
+                  key={category.id}
+                  className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-white px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    name="specialty_ids"
+                    value={category.id}
+                    className="size-4 accent-[#1f5c4e]"
+                  />
+                  {category.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
 
         <label className="block">
           <span className="mb-2 block text-sm font-bold">ملاحظة الاعتماد</span>
@@ -176,6 +251,39 @@ export function StaffApprovalForm({
         <div className="flex justify-end">
           <ApprovalButton />
         </div>
+      </form>
+
+      <form
+        action={rejectionAction}
+        className="grid gap-3 border-t border-line bg-[#fffafa] px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-end"
+      >
+        <input type="hidden" name="request_id" value={request.id} />
+        <label>
+          <span className="mb-2 block text-sm font-bold text-red-800">
+            سبب الرفض
+          </span>
+          <input
+            name="reason"
+            required
+            minLength={5}
+            maxLength={500}
+            placeholder="مثال: الحساب مكرر أو بيانات الموظف غير مكتملة"
+            className="h-10 w-full rounded-md border border-red-200 bg-white px-3 text-sm focus:border-red-500 focus:outline-none"
+          />
+        </label>
+        <RejectionButton />
+        {rejectionState.message ? (
+          <div
+            role="status"
+            className={`text-sm sm:col-span-2 ${
+              rejectionState.status === "success"
+                ? "text-emerald-700"
+                : "text-red-700"
+            }`}
+          >
+            {rejectionState.message}
+          </div>
+        ) : null}
       </form>
     </article>
   );

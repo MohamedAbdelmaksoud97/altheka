@@ -26,6 +26,15 @@ if (
 }
 
 const organizationId = "00000000-0000-0000-0000-000000000001";
+const supervisorCategoryAccounts = [
+  ["commercial", "commercial", "مشرف القضايا التجارية"],
+  ["labor", "labor", "مشرف القضايا العمالية"],
+  ["medical_malpractice", "medical", "مشرف قضايا الأخطاء الطبية"],
+  ["enforcement", "enforcement", "مشرف قضايا التنفيذ"],
+  ["personal_status", "personal-status", "مشرف قضايا الأحوال الشخصية"],
+  ["civil_rights", "civil-rights", "مشرف القضايا الحقوقية"],
+  ["administrative", "administrative", "مشرف القضايا الإدارية"],
+];
 const staffAccounts = [
   {
     roleCode: "super_admin",
@@ -75,6 +84,17 @@ const staffAccounts = [
     jobTitleCode: "legal_specialist",
     password: staffPassword,
   },
+  ...supervisorCategoryAccounts.map(
+    ([specialtyCode, emailSlug, fullName]) => ({
+      roleCode: "litigation_supervisor",
+      email: `demo.supervisor-${emailSlug}@altheka.example`,
+      fullName,
+      departmentCode: "litigation",
+      jobTitleCode: "litigation_supervisor",
+      specialtyCode,
+      password: staffPassword,
+    }),
+  ),
   {
     roleCode: "estates_manager",
     email: "demo.estates-manager@altheka.example",
@@ -171,6 +191,7 @@ const [
   { data: roles, error: rolesError },
   { data: departments, error: departmentsError },
   { data: jobTitles, error: jobTitlesError },
+  { data: categories, error: categoriesError },
 ] = await Promise.all([
   admin
     .from("roles")
@@ -187,11 +208,17 @@ const [
     .select("id, code, name")
     .eq("organization_id", organizationId)
     .eq("is_active", true),
+  admin
+    .from("litigation_case_categories")
+    .select("id, code, name")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true),
 ]);
 
 if (rolesError) throw rolesError;
 if (departmentsError) throw departmentsError;
 if (jobTitlesError) throw jobTitlesError;
+if (categoriesError) throw categoriesError;
 
 const roleByCode = new Map(roles.map((role) => [role.code, role]));
 const departmentByCode = new Map(
@@ -199,6 +226,9 @@ const departmentByCode = new Map(
 );
 const jobTitleByCode = new Map(
   jobTitles.map((jobTitle) => [jobTitle.code, jobTitle]),
+);
+const categoryByCode = new Map(
+  categories.map((category) => [category.code, category]),
 );
 
 for (const account of staffAccounts) {
@@ -210,6 +240,12 @@ for (const account of staffAccounts) {
   }
   if (!jobTitleByCode.has(account.jobTitleCode)) {
     throw new Error(`Missing job title: ${account.jobTitleCode}`);
+  }
+  if (
+    account.specialtyCode &&
+    !categoryByCode.has(account.specialtyCode)
+  ) {
+    throw new Error(`Missing litigation category: ${account.specialtyCode}`);
   }
 }
 
@@ -272,6 +308,40 @@ for (const account of staffAccounts) {
     { onConflict: "user_id,role_id" },
   );
   if (roleError) throw roleError;
+
+  if (account.specialtyCode) {
+    const category = categoryByCode.get(account.specialtyCode);
+    const { error: revokeSpecialtiesError } = await admin
+      .from("litigation_supervisor_specialties")
+      .update({
+        revoked_at: new Date().toISOString(),
+        revoked_by: demoSuperAdminId,
+      })
+      .eq("supervisor_id", user.id)
+      .neq("category_id", category.id)
+      .is("revoked_at", null);
+    if (revokeSpecialtiesError) throw revokeSpecialtiesError;
+
+    const { data: activeSpecialty, error: specialtyLookupError } = await admin
+      .from("litigation_supervisor_specialties")
+      .select("id")
+      .eq("supervisor_id", user.id)
+      .eq("category_id", category.id)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (specialtyLookupError) throw specialtyLookupError;
+    if (!activeSpecialty) {
+      const { error: specialtyError } = await admin
+        .from("litigation_supervisor_specialties")
+        .insert({
+          organization_id: organizationId,
+          supervisor_id: user.id,
+          category_id: category.id,
+          assigned_by: demoSuperAdminId,
+        });
+      if (specialtyError) throw specialtyError;
+    }
+  }
 
   const { error: registrationError } = await admin
     .from("staff_registration_requests")

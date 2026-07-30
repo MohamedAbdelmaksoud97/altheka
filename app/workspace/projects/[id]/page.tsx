@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
+  BellRing,
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import {
+  AttentionNoticeAcknowledgeForm,
+  AttentionNoticeForm,
   CaseActionStatusForm,
   EstateAssetForm,
   EstateAssetUpdateForm,
@@ -33,7 +36,9 @@ import {
   NextActionForm,
   ProjectDocumentForm,
   ProjectDocumentPublicationForm,
+  ProjectAssistantForm,
   ProjectMessageForm,
+  RemoveProjectAssistantForm,
   ProjectTeamForm,
   StartLitigationActionForm,
   StartWorkflowForm,
@@ -60,6 +65,26 @@ type ProjectMemberRow = {
   membership_role: string;
   can_contact_client: boolean;
   profiles: Profile | Profile[] | null;
+};
+type ProjectAssigneeRow = {
+  user_id: string;
+  assignment_kind: "primary" | "assistant";
+  assigned_at: string;
+  profiles: Profile | Profile[] | null;
+};
+type AttentionNoticeRow = {
+  id: string;
+  workflow_action_instance_id: string | null;
+  litigation_action_id: string | null;
+  target_user_id: string;
+  issued_by: string;
+  reason: string;
+  status: "sent" | "acknowledged";
+  acknowledged_at: string | null;
+  response_text: string | null;
+  created_at: string;
+  target: Profile | Profile[] | null;
+  issuer: Profile | Profile[] | null;
 };
 type StageRow = {
   id: string;
@@ -189,7 +214,7 @@ export default async function ProjectPage({
   const { data: project } = await supabase
     .from("projects")
     .select(
-      "id, organization_id, client_id, service_request_id, name, project_number, project_type, status, client_stage_label, project_manager_id, primary_assignee_id, parent_project_id, created_at, updated_at, clients(display_name)",
+      "id, organization_id, client_id, service_request_id, name, project_number, project_type, status, client_stage_label, project_manager_id, primary_assignee_id, parent_project_id, department_id, litigation_case_category_id, needs_category_review, created_at, updated_at, clients(display_name)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -205,6 +230,8 @@ export default async function ProjectPage({
     estatePartiesResult,
     teamsResult,
     conversationsResult,
+    assigneesResult,
+    attentionNoticesResult,
   ] = await Promise.all([
     supabase
       .from("project_members")
@@ -264,6 +291,21 @@ export default async function ProjectPage({
       .eq("project_id", id)
       .is("archived_at", null)
       .order("conversation_type"),
+    supabase
+      .from("project_assignees")
+      .select(
+        "user_id, assignment_kind, assigned_at, profiles!project_assignees_user_id_fkey(id, full_name)",
+      )
+      .eq("project_id", id)
+      .is("ended_at", null)
+      .order("assigned_at"),
+    supabase
+      .from("project_attention_notices")
+      .select(
+        "id, workflow_action_instance_id, litigation_action_id, target_user_id, issued_by, reason, status, acknowledged_at, response_text, created_at, target:profiles!project_attention_notices_target_user_id_fkey(id, full_name), issuer:profiles!project_attention_notices_issued_by_fkey(id, full_name)",
+      )
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
   ]);
 
   const members = (membersResult.data ?? []) as unknown as ProjectMemberRow[];
@@ -276,6 +318,66 @@ export default async function ProjectPage({
       canContactClient: member.can_contact_client,
     };
   });
+  const projectAssignees = (
+    (assigneesResult.data ?? []) as unknown as ProjectAssigneeRow[]
+  ).map((assignee) => ({
+    id: assignee.user_id,
+    name: relationOne(assignee.profiles)?.full_name ?? "موظف",
+    kind: assignee.assignment_kind,
+    assignedAt: assignee.assigned_at,
+  }));
+  const activeAssistantIds = new Set(
+    projectAssignees
+      .filter((assignee) => assignee.kind === "assistant")
+      .map((assignee) => assignee.id),
+  );
+  const attentionNotices =
+    (attentionNoticesResult.data ?? []) as unknown as AttentionNoticeRow[];
+
+  const { data: eligibleStaffRows } = project.department_id
+    ? await supabase
+        .from("profiles")
+        .select(
+          "id, full_name, job_title:job_titles!profiles_job_title_id_fkey(name), user_roles!user_roles_user_id_fkey(revoked_at, role:roles!user_roles_role_id_fkey(code))",
+        )
+        .eq("account_kind", "staff")
+        .eq("activation_status", "active_staff")
+        .eq("is_active", true)
+        .eq("department_id", project.department_id)
+        .is("deleted_at", null)
+        .order("full_name")
+    : { data: [] };
+  const eligibleStaff = (eligibleStaffRows ?? [])
+    .filter((employee) => {
+      const roleRows = employee.user_roles as unknown as {
+        revoked_at: string | null;
+        role: { code: string } | { code: string }[] | null;
+      }[];
+      return roleRows.some((roleRow) => {
+        const role = relationOne(roleRow.role);
+        return (
+          !roleRow.revoked_at &&
+          ["lawyer", "legal_specialist", "litigation_manager"].includes(
+            role?.code ?? "",
+          )
+        );
+      });
+    })
+    .filter(
+      (employee) =>
+        employee.id !== project.primary_assignee_id &&
+        !activeAssistantIds.has(employee.id),
+    )
+    .map((employee) => ({
+      id: employee.id,
+      name: employee.full_name,
+      jobTitle: relationOne(
+        employee.job_title as
+          | { name: string }
+          | { name: string }[]
+          | null,
+      )?.name,
+    }));
   const profileIds = [
     project.project_manager_id,
     project.primary_assignee_id,
@@ -335,6 +437,47 @@ export default async function ProjectPage({
   const litigationActionIds = (caseActionsResult.data ?? []).map(
     (action) => action.id,
   );
+  const workflowActionIds = actions.map((action) => action.id);
+  const [
+    { data: litigationActionAssigneeRows },
+    { data: workflowActionParticipantRows },
+  ] = await Promise.all([
+    litigationActionIds.length
+      ? supabase
+          .from("litigation_case_action_assignees")
+          .select("litigation_action_id, user_id")
+          .in("litigation_action_id", litigationActionIds)
+          .is("ended_at", null)
+      : Promise.resolve({ data: [] }),
+    workflowActionIds.length
+      ? supabase
+          .from("workflow_action_participants")
+          .select("workflow_action_instance_id, user_id")
+          .in("workflow_action_instance_id", workflowActionIds)
+          .eq("participant_type", "executor")
+          .is("unassigned_at", null)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const assigneeDirectory = new Map(
+    [...projectAssignees, ...memberDirectory].map((member) => [
+      member.id,
+      member.name,
+    ]),
+  );
+  const litigationAssigneesByAction = new Map<string, string[]>();
+  for (const row of litigationActionAssigneeRows ?? []) {
+    const assignees =
+      litigationAssigneesByAction.get(row.litigation_action_id) ?? [];
+    assignees.push(row.user_id);
+    litigationAssigneesByAction.set(row.litigation_action_id, assignees);
+  }
+  const workflowAssigneesByAction = new Map<string, string[]>();
+  for (const row of workflowActionParticipantRows ?? []) {
+    const assignees =
+      workflowAssigneesByAction.get(row.workflow_action_instance_id) ?? [];
+    assignees.push(row.user_id);
+    workflowAssigneesByAction.set(row.workflow_action_instance_id, assignees);
+  }
   const { data: litigationSubmissionData } = litigationActionIds.length
     ? await supabase
         .from("litigation_action_submissions")
@@ -391,6 +534,14 @@ export default async function ProjectPage({
   const currentAssigneeName =
     memberDirectory.find((member) => member.id === currentAction?.assigned_to)
       ?.name ?? "غير مسند";
+  const currentActionAssigneeIds = currentAction
+    ? (litigationAssigneesByAction.get(currentAction.id) ?? [
+        currentAction.assigned_to,
+      ]).filter((value): value is string => Boolean(value))
+    : [];
+  const isCurrentActionAssignee = currentActionAssigneeIds.includes(
+    access.userId,
+  );
   const completedActions = actions.filter((action) =>
     ["approved", "completed"].includes(action.status),
   ).length;
@@ -425,6 +576,16 @@ export default async function ProjectPage({
     "estates.manage_assets",
   );
   const canManageTeams = access.permissions.includes("project_teams.manage");
+  const canAssignAssistants = access.permissions.includes(
+    "projects.assign_assistants",
+  );
+  const canIssueAttentionNotice = access.permissions.includes(
+    "supervision.issue_notice",
+  );
+  const canOperateWorkflow =
+    access.permissions.includes("workflow.transition") ||
+    access.permissions.includes("system.override") ||
+    project.project_manager_id === access.userId;
   const canUpload = access.permissions.includes("documents.upload");
   const canManagePublication =
     access.permissions.includes("documents.publish") ||
@@ -607,6 +768,101 @@ export default async function ProjectPage({
               </article>
             ))}
           </section>
+
+          {isLitigation ? (
+            <section className="border-y border-line bg-surface px-5 py-5">
+              <div>
+                <div className="flex items-center gap-3">
+                  <UsersRound className="size-5 text-gold" aria-hidden="true" />
+                  <h2 className="font-bold">المكلفون بالقضية</h2>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {projectAssignees.length ? (
+                    projectAssignees.map((assignee) => (
+                      <div
+                        key={assignee.id}
+                        className="border-r-2 border-line pr-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-bold">{assignee.name}</p>
+                          <span className="text-xs text-muted">
+                            {assignee.kind === "primary"
+                              ? "المكلف الرئيسي ومدير المشروع"
+                              : "مكلف مساعد"}
+                          </span>
+                        </div>
+                        {assignee.kind === "assistant" &&
+                        canAssignAssistants ? (
+                          <RemoveProjectAssistantForm
+                            projectId={project.id}
+                            userId={assignee.id}
+                          />
+                        ) : null}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted">
+                      لم يسجل مكلف للمشروع بعد.
+                    </p>
+                  )}
+                </div>
+                {canAssignAssistants && eligibleStaff.length ? (
+                  <div className="mt-5 border-t border-line pt-5">
+                    <ProjectAssistantForm
+                      projectId={project.id}
+                      staff={eligibleStaff}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          {attentionNotices.length ? (
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+                <BellRing className="size-5 text-amber-700" aria-hidden="true" />
+                <h2 className="font-bold">سجل لفت النظر</h2>
+              </div>
+              <div className="divide-y divide-line">
+                {attentionNotices.map((notice) => {
+                  const target = relationOne(notice.target);
+                  const issuer = relationOne(notice.issuer);
+                  return (
+                    <article key={notice.id} className="px-5 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold">{notice.reason}</p>
+                          <p className="mt-1 text-xs text-muted">
+                            من {issuer?.full_name ?? "المشرف"} إلى{" "}
+                            {target?.full_name ?? "المكلف"} ·{" "}
+                            {dateTime.format(new Date(notice.created_at))}
+                          </p>
+                          {notice.response_text ? (
+                            <p className="mt-3 border-r-2 border-brand pr-3 text-sm">
+                              {notice.response_text}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="rounded-md border border-line px-3 py-1 text-xs font-bold">
+                          {notice.status === "acknowledged"
+                            ? "تم الاطلاع"
+                            : "بانتظار الاطلاع"}
+                        </span>
+                      </div>
+                      {notice.target_user_id === access.userId &&
+                      notice.status === "sent" ? (
+                        <AttentionNoticeAcknowledgeForm
+                          projectId={project.id}
+                          noticeId={notice.id}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           {!workflow ? (
             <section className="flex flex-wrap items-center justify-between gap-4 border-y border-amber-200 bg-amber-50 px-5 py-5">
@@ -798,11 +1054,33 @@ export default async function ProjectPage({
                             >
                               {labelFor(workflowActionStatusLabels, action.status)}
                             </span>
-                            <WorkflowActionControl
-                              projectId={project.id}
-                              actionId={action.id}
-                              status={action.status}
-                            />
+                            <div className="space-y-3">
+                              {canOperateWorkflow ? (
+                                <WorkflowActionControl
+                                  projectId={project.id}
+                                  actionId={action.id}
+                                  status={action.status}
+                                />
+                              ) : null}
+                              {canIssueAttentionNotice &&
+                              !["approved", "completed", "cancelled"].includes(
+                                action.status,
+                              ) ? (
+                                <AttentionNoticeForm
+                                  projectId={project.id}
+                                  subjectType="workflow"
+                                  subjectId={action.id}
+                                  assignees={(
+                                    workflowAssigneesByAction.get(action.id) ??
+                                    []
+                                  ).map((userId) => ({
+                                    id: userId,
+                                    name:
+                                      assigneeDirectory.get(userId) ?? "مكلف",
+                                  }))}
+                                />
+                              ) : null}
+                            </div>
                           </article>
                         );
                       })}
@@ -929,7 +1207,27 @@ export default async function ProjectPage({
                         </div>
                       ) : null}
 
-                      {currentAction.assigned_to === access.userId &&
+                      {canIssueAttentionNotice &&
+                      !["completed", "cancelled", "superseded"].includes(
+                        currentAction.status,
+                      ) ? (
+                        <div className="border-t border-line pt-5">
+                          <AttentionNoticeForm
+                            projectId={project.id}
+                            subjectType="litigation"
+                            subjectId={currentAction.id}
+                            assignees={currentActionAssigneeIds.map(
+                              (userId) => ({
+                                id: userId,
+                                name:
+                                  assigneeDirectory.get(userId) ?? "مكلف",
+                              }),
+                            )}
+                          />
+                        </div>
+                      ) : null}
+
+                      {isCurrentActionAssignee &&
                       canRespondToLitigationAction &&
                       currentAction.status === "planned" ? (
                         <div className="border-t border-line pt-5">
@@ -940,7 +1238,7 @@ export default async function ProjectPage({
                         </div>
                       ) : null}
 
-                      {currentAction.assigned_to === access.userId &&
+                      {isCurrentActionAssignee &&
                       canRespondToLitigationAction &&
                       ["in_progress", "returned_for_revision"].includes(
                         currentAction.status,

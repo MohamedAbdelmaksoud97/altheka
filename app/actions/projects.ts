@@ -39,6 +39,7 @@ function refreshProject(projectId: string) {
   revalidatePath(`/workspace/projects/${projectId}`);
   revalidatePath("/client");
   revalidatePath(`/client/projects/${projectId}`);
+  revalidatePath("/workspace/supervision");
 }
 
 function optionalDateTime(value: FormDataEntryValue | null) {
@@ -239,7 +240,7 @@ export async function startLitigationActionExecutionAction(
   if (!parsed.success) return errorState("معرف الإجراء غير صالح.");
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("start_litigation_case_action", {
+  const { error } = await supabase.rpc("start_litigation_case_action_v2", {
     p_action_id: parsed.data.actionId,
   });
   if (error) {
@@ -250,6 +251,179 @@ export async function startLitigationActionExecutionAction(
 
   refreshProject(parsed.data.projectId);
   return successState("بدأ تنفيذ الإجراء وسجل وقت البدء.");
+}
+
+export async function assignProjectAssistantAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      userId: uuid,
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      userId: formData.get("user_id"),
+    });
+  if (!parsed.success) return errorState("اختر مكلفًا مساعدًا صالحًا.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("assign_project_assignee", {
+    p_project_id: parsed.data.projectId,
+    p_user_id: parsed.data.userId,
+  });
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر إضافة المكلف المساعد. تحقق من أهليته ونطاق الإدارة."),
+    );
+  }
+  refreshProject(parsed.data.projectId);
+  return successState("تمت إضافة المكلف المساعد وإسناده إلى الإجراءات المفتوحة.");
+}
+
+export async function updateProjectCategoryAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      categoryId: uuid,
+      reason: z.string().trim().min(5).max(500),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      categoryId: formData.get("category_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) {
+    return errorState("اختر نوع القضية واكتب سببًا واضحًا للتصنيف أو التغيير.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc(
+    "update_litigation_project_category",
+    {
+      p_project_id: parsed.data.projectId,
+      p_category_id: parsed.data.categoryId,
+      p_reason: parsed.data.reason,
+    },
+  );
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر تحديث تصنيف القضية داخل المشروع."),
+    );
+  }
+  refreshProject(parsed.data.projectId);
+  return successState("تم اعتماد تصنيف القضية وإشعار المشرفين المطابقين.");
+}
+
+export async function removeProjectAssistantAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      userId: uuid,
+      reason: z.string().trim().min(5).max(500),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      userId: formData.get("user_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) {
+    return errorState("اختر المكلف واكتب سببًا واضحًا لإنهاء التكليف.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_project_assignee", {
+    p_project_id: parsed.data.projectId,
+    p_user_id: parsed.data.userId,
+    p_reason: parsed.data.reason,
+  });
+  if (error) {
+    return errorState(rpcError(error, "تعذر إنهاء تكليف المساعد."));
+  }
+  refreshProject(parsed.data.projectId);
+  return successState("انتهى تكليف المساعد مع الاحتفاظ بسجل أعماله السابق.");
+}
+
+export async function issueAttentionNoticeAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      targetUserId: uuid,
+      subjectType: z.enum(["workflow", "litigation"]),
+      subjectId: uuid,
+      reason: z.string().trim().min(5).max(1000),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      targetUserId: formData.get("target_user_id"),
+      subjectType: formData.get("subject_type"),
+      subjectId: formData.get("subject_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) {
+    return errorState("اختر المكلف واكتب سببًا واضحًا للفت النظر.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("issue_project_attention_notice", {
+    p_project_id: parsed.data.projectId,
+    p_target_user_id: parsed.data.targetUserId,
+    p_reason: parsed.data.reason,
+    p_workflow_action_instance_id:
+      parsed.data.subjectType === "workflow" ? parsed.data.subjectId : null,
+    p_litigation_action_id:
+      parsed.data.subjectType === "litigation" ? parsed.data.subjectId : null,
+  });
+  if (error) {
+    return errorState(
+      rpcError(error, "تعذر إصدار لفت النظر. يجب أن يكون الإجراء مفتوحًا والمكلف مسندًا إليه."),
+    );
+  }
+  refreshProject(parsed.data.projectId);
+  return successState("تم إصدار لفت النظر وإشعار المكلف والإدارة.");
+}
+
+export async function acknowledgeAttentionNoticeAction(
+  _state: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      projectId: uuid,
+      noticeId: uuid,
+      responseText: z.string().trim().max(2000).optional(),
+    })
+    .safeParse({
+      projectId: formData.get("project_id"),
+      noticeId: formData.get("notice_id"),
+      responseText:
+        String(formData.get("response_text") ?? "").trim() || undefined,
+    });
+  if (!parsed.success) return errorState("تعذر قراءة رد لفت النظر.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc(
+    "acknowledge_project_attention_notice",
+    {
+      p_notice_id: parsed.data.noticeId,
+      p_response_text: parsed.data.responseText ?? null,
+    },
+  );
+  if (error) {
+    return errorState(rpcError(error, "تعذر تأكيد الاطلاع على لفت النظر."));
+  }
+  refreshProject(parsed.data.projectId);
+  return successState("تم تأكيد الاطلاع وحفظ الرد.");
 }
 
 export async function submitLitigationActionResponseAction(
@@ -323,7 +497,7 @@ export async function submitLitigationActionResponseAction(
   }
 
   const { error } = await supabase.rpc(
-    "submit_litigation_action_response",
+    "submit_litigation_action_response_v2",
     {
       p_action_id: parsed.data.actionId,
       p_result_summary: parsed.data.resultSummary,

@@ -13,12 +13,23 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-const requestSchema = z.object({
-  clientProfileId: z.uuid("اختر حساب العميل."),
-  requestType: z.enum(["litigation", "estate", "consultation", "other"]),
-  title: z.string().trim().min(5, "اكتب عنوانًا أوضح للطلب.").max(160),
-  summary: z.string().trim().min(10, "أضف ملخصًا لا يقل عن 10 أحرف.").max(3000),
-});
+const requestSchema = z
+  .object({
+    clientProfileId: z.uuid("اختر حساب العميل."),
+    requestType: z.enum(["litigation", "estate", "consultation", "other"]),
+    litigationCategoryId: z.union([z.uuid(), z.literal("")]).optional(),
+    title: z.string().trim().min(5, "اكتب عنوانًا أوضح للطلب.").max(160),
+    summary: z.string().trim().min(10, "أضف ملخصًا لا يقل عن 10 أحرف.").max(3000),
+  })
+  .superRefine((value, context) => {
+    if (value.requestType === "litigation" && !value.litigationCategoryId) {
+      context.addIssue({
+        code: "custom",
+        path: ["litigationCategoryId"],
+        message: "اختر نوع القضية.",
+      });
+    }
+  });
 
 const requestIdSchema = z.uuid("معرف الطلب غير صالح.");
 
@@ -53,6 +64,8 @@ export async function createRequestAction(
   const parsed = requestSchema.safeParse({
     clientProfileId: formData.get("client_profile_id"),
     requestType: formData.get("request_type"),
+    litigationCategoryId:
+      formData.get("litigation_case_category_id") || "",
     title: formData.get("title"),
     summary: formData.get("summary"),
   });
@@ -64,11 +77,15 @@ export async function createRequestAction(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_staff_service_request", {
+  const { data, error } = await supabase.rpc("create_staff_service_request_v2", {
     p_client_profile_id: parsed.data.clientProfileId,
     p_request_type: parsed.data.requestType,
     p_title: parsed.data.title,
     p_summary: parsed.data.summary,
+    p_litigation_case_category_id:
+      parsed.data.requestType === "litigation"
+        ? parsed.data.litigationCategoryId || null
+        : null,
   });
 
   if (error || !data) {
@@ -79,6 +96,41 @@ export async function createRequestAction(
 
   revalidatePath("/workspace/requests");
   redirect(`/workspace/requests/${data}`);
+}
+
+export async function updateRequestCategoryAction(
+  _previousState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      requestId: z.uuid(),
+      categoryId: z.uuid("اختر نوع القضية."),
+      reason: z.string().trim().min(5).max(500),
+    })
+    .safeParse({
+      requestId: formData.get("request_id"),
+      categoryId: formData.get("litigation_case_category_id"),
+      reason: formData.get("reason"),
+    });
+  if (!parsed.success) {
+    return errorState("اختر نوع القضية واكتب سببًا واضحًا للتصنيف أو التعديل.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_litigation_case_category", {
+    p_request_id: parsed.data.requestId,
+    p_category_id: parsed.data.categoryId,
+    p_reason: parsed.data.reason,
+  });
+  if (error) {
+    return errorState(
+      rpcMessage(error, "تعذر تحديث نوع القضية. تحقق من الصلاحية وحالة الطلب."),
+    );
+  }
+
+  refreshRequest(parsed.data.requestId);
+  return successState("تم تحديث نوع القضية وتسجيل سبب التعديل.");
 }
 
 export async function linkClientRequestAction(
