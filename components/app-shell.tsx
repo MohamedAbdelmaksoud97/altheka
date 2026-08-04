@@ -12,6 +12,7 @@ import {
   ScanSearch,
   Settings2,
   ScrollText,
+  ShieldCheck,
   Tags,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
@@ -42,6 +43,10 @@ export function AppShell({
   const canManageCaseCategories = access.permissions.includes(
     "case_categories.manage",
   );
+  const canOpenAuditLog =
+    access.permissions.includes("audit.read") &&
+    (access.roleCodes.includes("super_admin") ||
+      access.roleCodes.includes("executive_manager"));
 
   return (
     <div className="min-h-screen">
@@ -169,6 +174,16 @@ export function AppShell({
               >
                 <Settings2 className="size-5" aria-hidden="true" />
                 <span className="sr-only">إدارة الموظفين</span>
+              </Link>
+            ) : null}
+            {canOpenAuditLog ? (
+              <Link
+                href="/workspace/audit-log"
+                title="سجل التدقيق"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <ShieldCheck className="size-5" aria-hidden="true" />
+                <span className="sr-only">سجل التدقيق</span>
               </Link>
             ) : null}
             {canManageCaseCategories ? (
