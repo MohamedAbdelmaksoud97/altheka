@@ -23,6 +23,12 @@ function errorState(message: string): ActionState {
 
 function rpcError(error: { message: string } | null, fallback: string) {
   if (!error) return fallback;
+  if (error.message.includes("No operational workflow is available")) {
+    return "لا توجد خارطة سير تشغيلية منشورة لهذا النوع من المشاريع.";
+  }
+  if (error.message.includes("workflow template is not published")) {
+    return "قالب خارطة السير المناسب لهذا المشروع غير منشور.";
+  }
   if (
     error.message.includes("permission") ||
     error.message.includes("cannot") ||

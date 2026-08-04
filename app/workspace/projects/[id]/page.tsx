@@ -852,10 +852,17 @@ export default async function ProjectPage({
   const progress = actions.length
     ? Math.round((completedActions / actions.length) * 100)
     : 0;
+  const supportsOperationalWorkflow = [
+    "litigation",
+    "estate",
+    "estate_asset",
+    "estate_litigation",
+  ].includes(project.project_type);
   const canStartWorkflow =
-    access.permissions.includes("workflow.start") ||
-    access.permissions.includes("system.override") ||
-    project.project_manager_id === access.userId;
+    supportsOperationalWorkflow &&
+    (access.permissions.includes("workflow.start") ||
+      access.permissions.includes("system.override") ||
+      project.project_manager_id === access.userId);
   const canManageCase = access.permissions.includes("litigation.manage_cases");
   const canSetNextAction = access.permissions.includes(
     "litigation.set_next_action",
@@ -1263,7 +1270,13 @@ export default async function ProjectPage({
                   </p>
                 </div>
               </div>
-              {canStartWorkflow ? <StartWorkflowForm projectId={project.id} /> : null}
+              {canStartWorkflow ? (
+                <StartWorkflowForm projectId={project.id} />
+              ) : !supportsOperationalWorkflow ? (
+                <span className="rounded-md border border-line bg-white px-4 py-3 text-sm font-bold text-muted">
+                  لا توجد خارطة سير تشغيلية لهذا النوع من المشاريع
+                </span>
+              ) : null}
             </section>
           ) : null}
 
@@ -1371,6 +1384,10 @@ export default async function ProjectPage({
                 <div className="mt-4">
                   <StartWorkflowForm projectId={project.id} />
                 </div>
+              ) : !supportsOperationalWorkflow ? (
+                <p className="mt-4 rounded-md border border-line bg-white px-4 py-3 text-sm font-bold text-muted">
+                  هذا المشروع مصنف كاستشارة، ولا توجد له خارطة سير تشغيلية منشورة.
+                </p>
               ) : null}
             </section>
           ) : (
