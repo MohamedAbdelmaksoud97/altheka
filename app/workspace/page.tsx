@@ -44,7 +44,7 @@ export default async function WorkspacePage() {
     supabase
       .from("projects")
       .select(
-        "id, name, project_number, project_type, status, client_stage_label, updated_at",
+        "id, name, project_number, project_type, status, client_stage_label, updated_at, clients(display_name)",
       )
       .eq("status", "active")
       .is("deleted_at", null)
@@ -145,6 +145,15 @@ export default async function WorkspacePage() {
           <div className="divide-y divide-line">
             {projects.length ? (
               projects.map((project) => (
+                (() => {
+                  const clientRelation = project.clients as unknown as
+                    | { display_name: string }
+                    | { display_name: string }[]
+                    | null;
+                  const client = Array.isArray(clientRelation)
+                    ? clientRelation[0]
+                    : clientRelation;
+                  return (
                 <Link
                   key={project.id}
                   href={`/workspace/projects/${project.id}`}
@@ -158,6 +167,7 @@ export default async function WorkspacePage() {
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
+                      {client?.display_name ?? "عميل غير محدد"} ·{" "}
                       {labelFor(projectTypeLabels, project.project_type)}
                     </p>
                   </div>
@@ -166,6 +176,8 @@ export default async function WorkspacePage() {
                   </p>
                   <ArrowLeft className="size-4 text-muted" aria-hidden="true" />
                 </Link>
+                  );
+                })()
               ))
             ) : (
               <p className="px-5 py-10 text-center text-sm text-muted">
