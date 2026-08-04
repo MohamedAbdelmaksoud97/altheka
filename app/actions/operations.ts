@@ -6,6 +6,10 @@ import type { ActionState } from "@/app/actions/action-state";
 import { createClient } from "@/lib/supabase/server";
 
 const uuidOrEmpty = z.union([z.uuid(), z.literal("")]).optional();
+const dateTimeLocalOrEmpty = z.union([
+  z.string().trim().min(1),
+  z.literal(""),
+]).optional();
 
 function errorState(message: string) {
   return { status: "error" as const, message };
@@ -27,8 +31,18 @@ function refreshOperations(projectId?: string | null, requestId?: string | null)
   revalidatePath("/workspace");
   revalidatePath("/workspace/projects");
   revalidatePath("/workspace/requests");
+  revalidatePath("/workspace/tasks");
+  revalidatePath("/workspace/calendar");
+  revalidatePath("/workspace/powers-of-attorney");
+  revalidatePath("/workspace/reports");
   if (projectId) revalidatePath(`/workspace/projects/${projectId}`);
   if (requestId) revalidatePath(`/workspace/requests/${requestId}`);
+}
+
+function toIsoDateTime(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 export async function recordWorkflowActionUpdateAction(
@@ -43,7 +57,7 @@ export async function recordWorkflowActionUpdateAction(
         .union([z.coerce.number().int().min(0).max(100), z.literal("")])
         .optional(),
       notes: z.string().trim().max(3000).optional(),
-      requestedDueAt: z.union([z.string().datetime(), z.literal("")]).optional(),
+      requestedDueAt: dateTimeLocalOrEmpty,
       projectId: uuidOrEmpty,
     })
     .safeParse({
@@ -64,7 +78,7 @@ export async function recordWorkflowActionUpdateAction(
     p_progress_percent:
       parsed.data.progressPercent === "" ? null : parsed.data.progressPercent,
     p_notes: parsed.data.notes ?? null,
-    p_requested_due_at: parsed.data.requestedDueAt || null,
+    p_requested_due_at: toIsoDateTime(parsed.data.requestedDueAt),
   });
   if (error) return errorState(rpcMessage(error, "تعذر حفظ تحديث المهمة."));
 
@@ -82,7 +96,7 @@ export async function proposeWorkflowActionAction(
       stageInstanceId: uuidOrEmpty,
       title: z.string().trim().min(3).max(200),
       description: z.string().trim().max(3000).optional(),
-      proposedDueAt: z.union([z.string().datetime(), z.literal("")]).optional(),
+      proposedDueAt: dateTimeLocalOrEmpty,
     })
     .safeParse({
       projectId: formData.get("project_id"),
@@ -100,7 +114,7 @@ export async function proposeWorkflowActionAction(
     p_workflow_stage_instance_id: parsed.data.stageInstanceId || null,
     p_title: parsed.data.title,
     p_description: parsed.data.description ?? null,
-    p_proposed_due_at: parsed.data.proposedDueAt || null,
+    p_proposed_due_at: toIsoDateTime(parsed.data.proposedDueAt),
   });
   if (error) return errorState(rpcMessage(error, "تعذر اقتراح المهمة."));
 
@@ -150,8 +164,8 @@ export async function createAppointmentAction(
       projectId: uuidOrEmpty,
       title: z.string().trim().min(3).max(200),
       description: z.string().trim().max(3000).optional(),
-      startsAt: z.string().datetime(),
-      endsAt: z.string().datetime(),
+      startsAt: z.string().trim().min(1),
+      endsAt: z.string().trim().min(1),
       location: z.string().trim().max(300).optional(),
       participantUserIds: z.array(z.uuid()).default([]),
     })
@@ -169,6 +183,9 @@ export async function createAppointmentAction(
         .filter((value): value is string => typeof value === "string"),
     });
   if (!parsed.success) return errorState("راجع بيانات الموعد.");
+  const startsAt = toIsoDateTime(parsed.data.startsAt);
+  const endsAt = toIsoDateTime(parsed.data.endsAt);
+  if (!startsAt || !endsAt) return errorState("راجع تاريخ ووقت الموعد.");
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("create_appointment", {
@@ -177,8 +194,8 @@ export async function createAppointmentAction(
     p_project_id: parsed.data.projectId || null,
     p_title: parsed.data.title,
     p_description: parsed.data.description ?? null,
-    p_starts_at: parsed.data.startsAt,
-    p_ends_at: parsed.data.endsAt,
+    p_starts_at: startsAt,
+    p_ends_at: endsAt,
     p_location: parsed.data.location ?? null,
     p_participant_user_ids: parsed.data.participantUserIds,
   });
@@ -243,7 +260,7 @@ export async function createEstatePartyApprovalRequestAction(
       subjectType: z.enum(["general", "asset", "distribution", "settlement"]),
       title: z.string().trim().min(3).max(200),
       description: z.string().trim().max(3000).optional(),
-      dueAt: z.union([z.string().datetime(), z.literal("")]).optional(),
+      dueAt: dateTimeLocalOrEmpty,
     })
     .safeParse({
       estateProjectId: formData.get("estate_project_id"),
@@ -262,7 +279,7 @@ export async function createEstatePartyApprovalRequestAction(
     p_subject_type: parsed.data.subjectType,
     p_title: parsed.data.title,
     p_description: parsed.data.description ?? null,
-    p_due_at: parsed.data.dueAt || null,
+    p_due_at: toIsoDateTime(parsed.data.dueAt),
   });
   if (error) return errorState(rpcMessage(error, "تعذر إنشاء طلب موافقة الورثة."));
 

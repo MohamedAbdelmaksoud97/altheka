@@ -2,12 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   Bell,
+  BarChart3,
   BriefcaseBusiness,
+  CalendarDays,
+  ClipboardList,
   Files,
   LayoutDashboard,
   LogOut,
   ScanSearch,
   Settings2,
+  ScrollText,
   Tags,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
@@ -97,6 +101,35 @@ export function AppShell({
             ) : null}
             {access.accountKind === "staff" &&
             access.activationStatus === "active_staff" ? (
+              <>
+                <Link
+                  href="/workspace/tasks"
+                  title="المهام التشغيلية"
+                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+                >
+                  <ClipboardList className="size-5" aria-hidden="true" />
+                  <span className="sr-only">المهام التشغيلية</span>
+                </Link>
+                <Link
+                  href="/workspace/calendar"
+                  title="التقويم"
+                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+                >
+                  <CalendarDays className="size-5" aria-hidden="true" />
+                  <span className="sr-only">التقويم</span>
+                </Link>
+                <Link
+                  href="/workspace/powers-of-attorney"
+                  title="الوكالات"
+                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+                >
+                  <ScrollText className="size-5" aria-hidden="true" />
+                  <span className="sr-only">الوكالات</span>
+                </Link>
+              </>
+            ) : null}
+            {access.accountKind === "staff" &&
+            access.activationStatus === "active_staff" ? (
               <Link
                 href="/workspace/notifications"
                 title="الإشعارات"
@@ -104,6 +137,18 @@ export function AppShell({
               >
                 <Bell className="size-5" aria-hidden="true" />
                 <span className="sr-only">الإشعارات</span>
+              </Link>
+            ) : null}
+            {canOpenSupervision ||
+            access.permissions.includes("tasks.approve_proposed") ||
+            access.permissions.includes("projects.read_all") ? (
+              <Link
+                href="/workspace/reports"
+                title="تقارير التشغيل"
+                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
+              >
+                <BarChart3 className="size-5" aria-hidden="true" />
+                <span className="sr-only">تقارير التشغيل</span>
               </Link>
             ) : null}
             {canOpenSupervision ? (

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -21,6 +22,13 @@ import {
   Workflow,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  EstateApprovalRequestForm,
+  EstateApprovalResponseForm,
+  ProposedTaskForm,
+  ProposedTaskReviewForm,
+  WorkflowActionUpdateForm,
+} from "@/components/operations/forms";
 import {
   AttentionNoticeAcknowledgeForm,
   AttentionNoticeForm,
@@ -652,6 +660,50 @@ export default async function ProjectPage({
       actions = (actionRows ?? []) as unknown as ActionRow[];
     }
   }
+  const workflowActionIds = actions.map((action) => action.id);
+  const [
+    workflowUpdatesResult,
+    proposedWorkflowActionsResult,
+    estateApprovalRequestsResult,
+  ] = await Promise.all([
+    workflowActionIds.length
+      ? supabase
+          .from("workflow_action_updates")
+          .select(
+            "id, workflow_action_instance_id, update_type, progress_percent, notes, requested_due_at, status, created_by, created_at",
+          )
+          .in("workflow_action_instance_id", workflowActionIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    supabase
+      .from("proposed_workflow_actions")
+      .select(
+        "id, project_id, workflow_stage_instance_id, title, description, proposed_due_at, status, review_notes, created_at",
+      )
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
+    project.project_type === "estate"
+      ? supabase
+          .from("estate_party_approval_requests")
+          .select(
+            "id, estate_project_id, estate_asset_id, subject_type, title, description, due_at, status, created_at",
+          )
+          .eq("estate_project_id", id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ]);
+  const estateApprovalRequestIds = (
+    estateApprovalRequestsResult.data ?? []
+  ).map((request) => request.id);
+  const estateApprovalResponsesResult =
+    estateApprovalRequestIds.length && project.project_type === "estate"
+      ? await supabase
+          .from("estate_party_approval_responses")
+          .select(
+            "id, approval_request_id, estate_party_id, decision, notes, evidence_document_id, responded_at",
+          )
+          .in("approval_request_id", estateApprovalRequestIds)
+      : { data: [] };
 
   const litigationCase = caseResult.data;
   const [caseActionsResult, hearingsResult] = litigationCase
@@ -676,7 +728,6 @@ export default async function ProjectPage({
   const litigationActionIds = (caseActionsResult.data ?? []).map(
     (action) => action.id,
   );
-  const workflowActionIds = actions.map((action) => action.id);
   const [
     { data: litigationActionAssigneeRows },
     { data: workflowActionParticipantRows },
@@ -716,6 +767,20 @@ export default async function ProjectPage({
       workflowAssigneesByAction.get(row.workflow_action_instance_id) ?? [];
     assignees.push(row.user_id);
     workflowAssigneesByAction.set(row.workflow_action_instance_id, assignees);
+  }
+  const workflowUpdatesByAction = new Map<string, any[]>();
+  for (const update of (workflowUpdatesResult.data ?? []) as any[]) {
+    const updates = workflowUpdatesByAction.get(update.workflow_action_instance_id) ?? [];
+    updates.push(update);
+    workflowUpdatesByAction.set(update.workflow_action_instance_id, updates);
+  }
+  const proposedActions = (proposedWorkflowActionsResult.data ?? []) as any[];
+  const estateApprovalRequests = (estateApprovalRequestsResult.data ?? []) as any[];
+  const estateApprovalResponsesByRequest = new Map<string, any[]>();
+  for (const response of (estateApprovalResponsesResult.data ?? []) as any[]) {
+    const responses = estateApprovalResponsesByRequest.get(response.approval_request_id) ?? [];
+    responses.push(response);
+    estateApprovalResponsesByRequest.set(response.approval_request_id, responses);
   }
   const { data: litigationSubmissionData } = litigationActionIds.length
     ? await supabase
@@ -841,6 +906,17 @@ export default async function ProjectPage({
     access.permissions.includes("workflow.transition") ||
     access.permissions.includes("system.override") ||
     project.project_manager_id === access.userId;
+  const canProposeTasks =
+    access.permissions.includes("tasks.propose") ||
+    access.permissions.includes("system.override");
+  const canApproveProposedTasks =
+    access.permissions.includes("tasks.approve_proposed") ||
+    access.permissions.includes("system.override") ||
+    project.project_manager_id === access.userId;
+  const canManageEstateApprovals =
+    access.permissions.includes("estate_approvals.manage") ||
+    access.permissions.includes("system.override") ||
+    project.project_manager_id === access.userId;
   const canUpload = access.permissions.includes("documents.upload");
   const canManagePublication =
     access.permissions.includes("documents.publish") ||
@@ -854,6 +930,14 @@ export default async function ProjectPage({
   const estateAssetNames = new Map(
     (estateAssetsResult.data ?? []).map((asset) => [asset.id, asset.name]),
   );
+  const estateAssetOptions = (estateAssetsResult.data ?? []).map((asset) => ({
+    id: asset.id,
+    name: asset.name,
+  }));
+  const documentOptions = (documentsResult.data ?? []).map((document) => ({
+    id: document.id,
+    name: document.title,
+  }));
   const estatePartyNames = new Map(
     (estatePartiesResult.data ?? []).map((party) => [party.id, party.full_name]),
   );
@@ -1330,6 +1414,12 @@ export default async function ProjectPage({
                     <div className="divide-y divide-line">
                       {stageActions.map((action) => {
                         const data = actionData(action);
+                        const actionUpdates =
+                          workflowUpdatesByAction.get(action.id) ?? [];
+                        const latestUpdate = actionUpdates[0];
+                        const latestProgress = actionUpdates.find(
+                          (update) => update.progress_percent !== null,
+                        )?.progress_percent;
                         return (
                           <article
                             key={action.id}
@@ -1352,6 +1442,29 @@ export default async function ProjectPage({
                                   ? `الاستحقاق ${dateTime.format(new Date(action.due_at))}`
                                   : "يبدأ موعده عند جاهزية الإجراء"}
                               </p>
+                              <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
+                                <p>
+                                  نسبة الإنجاز:{" "}
+                                  <strong className="text-ink tabular-nums">
+                                    {latestProgress ?? 0}%
+                                  </strong>
+                                </p>
+                                <p>
+                                  آخر تحديث:{" "}
+                                  <strong className="text-ink">
+                                    {latestUpdate
+                                      ? dateTime.format(
+                                          new Date(latestUpdate.created_at),
+                                        )
+                                      : "لا يوجد"}
+                                  </strong>
+                                </p>
+                              </div>
+                              {latestUpdate?.notes ? (
+                                <p className="mt-2 rounded-md bg-[#f4f7f5] px-3 py-2 text-xs leading-6 text-muted">
+                                  {latestUpdate.notes}
+                                </p>
+                              ) : null}
                             </div>
                             <span
                               className={`w-fit rounded-md border px-3 py-1.5 text-xs font-bold ${actionStatusTone(action.status)}`}
@@ -1365,6 +1478,21 @@ export default async function ProjectPage({
                                   actionId={action.id}
                                   status={action.status}
                                 />
+                              ) : null}
+                              {!["approved", "completed", "cancelled"].includes(
+                                action.status,
+                              ) ? (
+                                <details className="rounded-md border border-line bg-white p-3">
+                                  <summary className="cursor-pointer text-xs font-bold text-brand">
+                                    تحديث/تمديد
+                                  </summary>
+                                  <div className="mt-3">
+                                    <WorkflowActionUpdateForm
+                                      projectId={project.id}
+                                      actionId={action.id}
+                                    />
+                                  </div>
+                                </details>
                               ) : null}
                               {canIssueAttentionNotice &&
                               !["approved", "completed", "cancelled"].includes(
@@ -1393,6 +1521,78 @@ export default async function ProjectPage({
                 );
               })
           )}
+          {workflow ? (
+            <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+              <div className="rounded-md border border-line bg-surface">
+                <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+                  <BadgeCheck className="size-5 text-brand" aria-hidden="true" />
+                  <h2 className="font-bold">المهام المقترحة</h2>
+                </div>
+                <div className="divide-y divide-line">
+                  {proposedActions.length ? (
+                    proposedActions.map((task) => (
+                      <article key={task.id} className="px-5 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-bold">{task.title}</p>
+                            <p className="mt-1 text-sm leading-7 text-muted">
+                              {task.description ?? "لا يوجد وصف"}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              {task.proposed_due_at
+                                ? `استحقاق مقترح ${dateTime.format(new Date(task.proposed_due_at))}`
+                                : "دون استحقاق مقترح"}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded-md border px-3 py-1.5 text-xs font-bold ${
+                              task.status === "pending"
+                                ? "border-amber-200 bg-amber-50 text-amber-800"
+                                : task.status === "approved"
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                  : "border-line text-muted"
+                            }`}
+                          >
+                            {task.status === "pending"
+                              ? "بانتظار الاعتماد"
+                              : task.status === "approved"
+                                ? "معتمدة"
+                                : task.status === "rejected"
+                                  ? "مرفوضة"
+                                  : "ملغية"}
+                          </span>
+                        </div>
+                        {task.status === "pending" && canApproveProposedTasks ? (
+                          <details className="mt-4 border-t border-line pt-4">
+                            <summary className="cursor-pointer text-sm font-bold text-brand">
+                              اعتماد أو رفض
+                            </summary>
+                            <div className="mt-4">
+                              <ProposedTaskReviewForm
+                                projectId={project.id}
+                                proposedActionId={task.id}
+                              />
+                            </div>
+                          </details>
+                        ) : null}
+                      </article>
+                    ))
+                  ) : (
+                    <p className="px-5 py-5 text-sm text-muted">
+                      لا توجد مهام مقترحة لهذا المشروع.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {canProposeTasks ? (
+                <aside className="h-fit rounded-md border border-line bg-surface p-5">
+                  <h2 className="mb-4 font-bold">اقتراح مهمة جديدة</h2>
+                  <ProposedTaskForm projectId={project.id} stages={teamStageOptions} />
+                </aside>
+              ) : null}
+            </section>
+          ) : null}
         </div>
       ) : null}
 
@@ -1914,6 +2114,131 @@ export default async function ProjectPage({
               ))}
             </section>
           ) : null}
+
+          <section className="rounded-md border border-line bg-surface">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+              <div className="flex items-center gap-3">
+                <BadgeCheck className="size-5 text-brand" aria-hidden="true" />
+                <h2 className="font-bold">طلبات موافقة الورثة</h2>
+              </div>
+              <span className="text-xs text-muted">
+                {estateApprovalRequests.length} طلب
+              </span>
+            </div>
+            <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
+              <div className="space-y-4">
+                {estateApprovalRequests.length ? (
+                  estateApprovalRequests.map((request) => {
+                    const responses =
+                      estateApprovalResponsesByRequest.get(request.id) ?? [];
+                    const responseByParty = new Map(
+                      responses.map((response) => [
+                        response.estate_party_id,
+                        response,
+                      ]),
+                    );
+                    return (
+                      <article
+                        key={request.id}
+                        className="rounded-md border border-line bg-white p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-bold">{request.title}</p>
+                            <p className="mt-1 text-sm leading-7 text-muted">
+                              {request.description ?? "لا يوجد وصف"} ·{" "}
+                              {request.subject_type}
+                              {request.estate_asset_id
+                                ? ` · ${estateAssetNames.get(request.estate_asset_id) ?? "أصل"}`
+                                : ""}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              {request.due_at
+                                ? `الاستحقاق ${dateTime.format(new Date(request.due_at))}`
+                                : "دون تاريخ استحقاق"}
+                            </p>
+                          </div>
+                          <span className="rounded-md border border-line bg-[#f7f8f7] px-3 py-1.5 text-xs font-bold text-muted">
+                            {request.status === "open" ? "مفتوح" : request.status}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 divide-y divide-line rounded-md border border-line">
+                          {(estatePartiesResult.data ?? []).map((party) => {
+                            const response = responseByParty.get(party.id);
+                            return (
+                              <div key={party.id} className="px-4 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-bold">
+                                      {party.full_name}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted">
+                                      {labelFor(
+                                        estatePartyTypeLabels,
+                                        party.party_type,
+                                      )}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={`rounded-md border px-3 py-1 text-xs font-bold ${
+                                      response?.decision === "approved"
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                        : response?.decision === "rejected"
+                                          ? "border-red-200 bg-red-50 text-red-800"
+                                          : "border-amber-200 bg-amber-50 text-amber-800"
+                                    }`}
+                                  >
+                                    {response?.decision === "approved"
+                                      ? "وافق"
+                                      : response?.decision === "rejected"
+                                        ? "رفض"
+                                        : "لم يرد"}
+                                  </span>
+                                </div>
+                                {response?.notes ? (
+                                  <p className="mt-2 text-xs leading-6 text-muted">
+                                    {response.notes}
+                                  </p>
+                                ) : null}
+                                {canManageEstateApprovals ? (
+                                  <details className="mt-3">
+                                    <summary className="cursor-pointer text-xs font-bold text-brand">
+                                      تسجيل أو تعديل الرد
+                                    </summary>
+                                    <EstateApprovalResponseForm
+                                      projectId={project.id}
+                                      approvalRequestId={request.id}
+                                      estatePartyId={party.id}
+                                      documents={documentOptions}
+                                    />
+                                  </details>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-md border border-line bg-white px-5 py-8 text-sm text-muted">
+                    لا توجد طلبات موافقة مستقلة مسجلة حتى الآن.
+                  </p>
+                )}
+              </div>
+
+              {canManageEstateApprovals ? (
+                <aside className="h-fit rounded-md border border-line bg-white p-4">
+                  <h3 className="mb-4 font-bold">إنشاء طلب موافقة</h3>
+                  <EstateApprovalRequestForm
+                    projectId={project.id}
+                    assets={estateAssetOptions}
+                  />
+                </aside>
+              ) : null}
+            </div>
+          </section>
 
           <div className="grid gap-7 xl:grid-cols-2">
             <section className="rounded-md border border-line bg-surface">
