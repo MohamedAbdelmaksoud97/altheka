@@ -10,6 +10,7 @@ import {
   Save,
   Link2,
   LoaderCircle,
+  MailPlus,
   Send,
   UserRoundCheck,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import {
   assignRequestAction,
   convertToProjectAction,
   createRequestAction,
+  inviteClientAction,
   linkClientRequestAction,
   respondProposalAction,
   reviewStudyAction,
@@ -26,7 +28,7 @@ import {
   submitStudyAction,
   updateDocumentPublicationAction,
   updateRequestCategoryAction,
-  uploadRequestDocumentAction,
+  uploadRequestDocumentsAction,
 } from "@/app/actions/pre-contract";
 import {
   initialActionState,
@@ -38,6 +40,14 @@ const inputClass =
   "h-11 w-full rounded-md border border-line bg-white px-3 text-sm focus:border-brand focus:outline-none";
 const textareaClass =
   "w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm leading-7 focus:border-brand focus:outline-none";
+
+type ClientSourceOption = { id: string; name: string; code?: string | null };
+type DocumentCategoryOption = {
+  id: string;
+  name: string;
+  code?: string | null;
+  scope?: string | null;
+};
 
 function ActionNotice({ state }: { state: ActionState }) {
   if (!state.message) return null;
@@ -90,12 +100,59 @@ function SubmitButton({
   );
 }
 
+export function InviteClientForm({
+  clientSources,
+}: {
+  clientSources: ClientSourceOption[];
+}) {
+  const [state, formAction] = useActionState(
+    inviteClientAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">اسم العميل</span>
+          <input name="full_name" required minLength={3} className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">البريد الإلكتروني</span>
+          <input type="email" name="email" required className={inputClass} />
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">رقم التواصل</span>
+          <input name="phone" className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">مصدر العميل</span>
+          <select name="client_source_id" className={inputClass}>
+            <option value="">غير محدد</option>
+            {clientSources.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ActionNotice state={state} />
+      <SubmitButton label="إرسال دعوة العميل" icon={MailPlus} />
+    </form>
+  );
+}
+
 export function CreateRequestForm({
   clients,
   litigationCategories,
+  clientSources,
 }: {
   clients: { id: string; full_name: string; email?: string | null }[];
   litigationCategories: LitigationCategoryOption[];
+  clientSources: ClientSourceOption[];
 }) {
   const [state, formAction] = useActionState(
     createRequestAction,
@@ -112,6 +169,20 @@ export function CreateRequestForm({
             <option key={client.id} value={client.id}>
               {client.full_name}
               {client.email ? ` - ${client.email}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block">
+        <span className="mb-2 block text-sm font-bold">مصدر العميل</span>
+        <select
+          name="client_source_id"
+          className={inputClass}
+        >
+          <option value="">غير محدد</option>
+          {clientSources.map((source) => (
+            <option key={source.id} value={source.id}>
+              {source.name}
             </option>
           ))}
         </select>
@@ -229,12 +300,14 @@ export function RequestCategoryForm({
 export function UploadDocumentForm({
   requestId,
   canPublish = false,
+  documentCategories = [],
 }: {
   requestId: string;
   canPublish?: boolean;
+  documentCategories?: DocumentCategoryOption[];
 }) {
   const [state, formAction] = useActionState(
-    uploadRequestDocumentAction,
+    uploadRequestDocumentsAction,
     initialActionState,
   );
   return (
@@ -260,11 +333,47 @@ export function UploadDocumentForm({
           </select>
         </label>
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">تصنيف المستند</span>
+          <select
+            name="document_category_id"
+            required={documentCategories.length > 0}
+            className={inputClass}
+          >
+            <option value="">غير محدد</option>
+            {documentCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">رقم المستند</span>
+          <input name="document_number" maxLength={100} className={inputClass} />
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">تاريخ المستند</span>
+          <input type="date" name="document_date" className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold">عدد الصفحات</span>
+          <input type="number" name="page_count" min={1} className={inputClass} />
+        </label>
+      </div>
+      <label className="block">
+        <span className="mb-2 block text-sm font-bold">الوصف</span>
+        <textarea name="description" rows={3} className={textareaClass} />
+      </label>
       <label className="block">
         <span className="mb-2 block text-sm font-bold">الملف</span>
         <input
           type="file"
-          name="file"
+          name="files"
+          multiple
           required
           accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
           className="block min-h-11 w-full rounded-md border border-line bg-white px-3 py-2 text-sm file:ml-3 file:rounded-md file:border-0 file:bg-[#e5eee9] file:px-3 file:py-1.5 file:font-bold file:text-brand"
@@ -621,7 +730,6 @@ export function ProposalResponseForm({
           <span className="mb-2 block text-sm font-bold">القرار</span>
           <select name="response_type" className={inputClass}>
             <option value="accept">قبول العرض</option>
-            <option value="request_discount">طلب تخفيض</option>
             <option value="negotiate">طلب تفاوض</option>
             <option value="reject">رفض العرض</option>
           </select>

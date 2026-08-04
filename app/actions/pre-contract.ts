@@ -18,6 +18,7 @@ const requestSchema = z
     clientProfileId: z.uuid("اختر حساب العميل."),
     requestType: z.enum(["litigation", "estate", "consultation", "other"]),
     litigationCategoryId: z.union([z.uuid(), z.literal("")]).optional(),
+    clientSourceId: z.union([z.uuid(), z.literal("")]).optional(),
     title: z.string().trim().min(5, "اكتب عنوانًا أوضح للطلب.").max(160),
     summary: z.string().trim().min(10, "أضف ملخصًا لا يقل عن 10 أحرف.").max(3000),
   })
@@ -36,6 +37,8 @@ const requestIdSchema = z.uuid("معرف الطلب غير صالح.");
 function errorState(message: string, fieldErrors?: Record<string, string[]>) {
   return { status: "error" as const, message, fieldErrors };
 }
+
+const nullableUuidSchema = z.union([z.uuid(), z.literal("")]).optional();
 
 function successState(message: string) {
   return { status: "success" as const, message };
@@ -66,6 +69,7 @@ export async function createRequestAction(
     requestType: formData.get("request_type"),
     litigationCategoryId:
       formData.get("litigation_case_category_id") || "",
+    clientSourceId: formData.get("client_source_id") || "",
     title: formData.get("title"),
     summary: formData.get("summary"),
   });
@@ -77,7 +81,7 @@ export async function createRequestAction(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_staff_service_request_v2", {
+  const { data, error } = await supabase.rpc("create_staff_service_request_v3", {
     p_client_profile_id: parsed.data.clientProfileId,
     p_request_type: parsed.data.requestType,
     p_title: parsed.data.title,
@@ -86,6 +90,7 @@ export async function createRequestAction(
       parsed.data.requestType === "litigation"
         ? parsed.data.litigationCategoryId || null
         : null,
+    p_client_source_id: parsed.data.clientSourceId || null,
   });
 
   if (error || !data) {
@@ -96,6 +101,64 @@ export async function createRequestAction(
 
   revalidatePath("/workspace/requests");
   redirect(`/workspace/requests/${data}`);
+}
+
+export async function inviteClientAction(
+  _previousState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      fullName: z.string().trim().min(3).max(160),
+      email: z.email(),
+      phone: z.string().trim().max(40).optional(),
+      sourceId: nullableUuidSchema,
+    })
+    .safeParse({
+      fullName: formData.get("full_name"),
+      email: formData.get("email"),
+      phone: formData.get("phone") || undefined,
+      sourceId: formData.get("client_source_id") || "",
+    });
+
+  if (!parsed.success) {
+    return errorState("راجع اسم العميل والبريد ورقم التواصل.");
+  }
+
+  const requestHeaders = await headers();
+  const origin = requestHeaders.get("origin");
+  const admin = createAdminClient();
+  const { data: invited, error: inviteError } =
+    await admin.auth.admin.inviteUserByEmail(parsed.data.email, {
+      data: {
+        full_name: parsed.data.fullName,
+        phone: parsed.data.phone ?? "",
+        registration_kind: "client",
+      },
+      redirectTo: origin ? `${origin}/auth/confirm` : undefined,
+    });
+
+  if (inviteError || !invited.user) {
+    return errorState("تعذر إرسال دعوة العميل. تحقق من البريد وإعدادات Supabase.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("register_invited_client_profile", {
+    p_profile_id: invited.user.id,
+    p_full_name: parsed.data.fullName,
+    p_phone: parsed.data.phone ?? null,
+    p_email: parsed.data.email,
+    p_source_id: parsed.data.sourceId || null,
+  });
+
+  if (error) {
+    return errorState(
+      rpcMessage(error, "تم إرسال الدعوة لكن تعذر ربط ملف العميل."),
+    );
+  }
+
+  revalidatePath("/workspace/requests");
+  return successState("تم إرسال دعوة العميل وإنشاء ملفه.");
 }
 
 export async function updateRequestCategoryAction(
@@ -324,10 +387,16 @@ export async function respondProposalAction(
     return errorState("حدد المبلغ المقترح للتخفيض.");
   }
 
+  const responseType =
+    parsed.data.responseType === "negotiate" &&
+    parsed.data.requestedAmount !== ""
+      ? "request_discount"
+      : parsed.data.responseType;
+
   const supabase = await createClient();
   const { error } = await supabase.rpc("respond_to_pre_contract_proposal", {
     p_proposal_id: parsed.data.proposalId,
-    p_response_type: parsed.data.responseType,
+    p_response_type: responseType,
     p_requested_amount:
       parsed.data.requestedAmount === "" ? null : parsed.data.requestedAmount,
     p_message: parsed.data.message ?? null,
@@ -441,6 +510,13 @@ export async function uploadRequestDocumentAction(
         "awaiting_approval",
         "published",
       ]),
+      documentCategoryId: nullableUuidSchema,
+      documentNumber: z.string().trim().max(100).optional(),
+      documentDate: z.union([z.string().date(), z.literal("")]).optional(),
+      description: z.string().trim().max(2000).optional(),
+      pageCount: z
+        .union([z.coerce.number().int().positive(), z.literal("")])
+        .optional(),
     })
     .safeParse({
       requestId: formData.get("request_id"),
@@ -448,6 +524,11 @@ export async function uploadRequestDocumentAction(
       documentType: formData.get("document_type"),
       visibility: formData.get("visibility") || "internal",
       publicationStatus: formData.get("publication_status") || "draft",
+      documentCategoryId: formData.get("document_category_id") || "",
+      documentNumber: formData.get("document_number") || undefined,
+      documentDate: formData.get("document_date") || "",
+      description: formData.get("description") || undefined,
+      pageCount: formData.get("page_count") || "",
     });
   if (!parsed.success) return errorState("أكمل عنوان المستند ونوعه.");
   if (
@@ -535,6 +616,174 @@ export async function uploadRequestDocumentAction(
 
   refreshRequest(parsed.data.requestId);
   return successState("تم رفع المستند وحفظ بصمته.");
+}
+
+export async function uploadRequestDocumentsAction(
+  _previousState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = z
+    .object({
+      requestId: z.uuid(),
+      title: z.string().trim().min(3).max(200),
+      documentType: z.string().trim().min(2).max(100),
+      visibility: z.enum([
+        "internal",
+        "client_visible",
+        "requires_client_action",
+      ]),
+      publicationStatus: z.enum([
+        "draft",
+        "awaiting_approval",
+        "published",
+      ]),
+      documentCategoryId: nullableUuidSchema,
+      documentNumber: z.string().trim().max(100).optional(),
+      documentDate: z.union([z.string().date(), z.literal("")]).optional(),
+      description: z.string().trim().max(2000).optional(),
+      pageCount: z
+        .union([z.coerce.number().int().positive(), z.literal("")])
+        .optional(),
+    })
+    .safeParse({
+      requestId: formData.get("request_id"),
+      title: formData.get("title"),
+      documentType: formData.get("document_type"),
+      visibility: formData.get("visibility") || "internal",
+      publicationStatus: formData.get("publication_status") || "draft",
+      documentCategoryId: formData.get("document_category_id") || "",
+      documentNumber: formData.get("document_number") || undefined,
+      documentDate: formData.get("document_date") || "",
+      description: formData.get("description") || undefined,
+      pageCount: formData.get("page_count") || "",
+    });
+
+  if (!parsed.success) {
+    return errorState("راجع بيانات المستندات والفهرسة.");
+  }
+  if (
+    parsed.data.visibility === "internal" &&
+    parsed.data.publicationStatus !== "draft"
+  ) {
+    return errorState("المستند الداخلي يجب أن يبقى مسودة.");
+  }
+
+  const files = formData
+    .getAll("files")
+    .filter((value): value is File => value instanceof File && value.size > 0);
+  const legacyFile = formData.get("file");
+  if (legacyFile instanceof File && legacyFile.size > 0 && !files.length) {
+    files.push(legacyFile);
+  }
+  if (!files.length) return errorState("اختر ملفًا واحدًا على الأقل.");
+
+  for (const file of files) {
+    if (file.size > DOCUMENT_MAX_BYTES) {
+      return errorState("الحد الأقصى لحجم كل ملف 25 ميجابايت.");
+    }
+    if (!DOCUMENT_ALLOWED_MIME_TYPES.has(file.type)) {
+      return errorState("نوع ملف غير مدعوم. استخدم PDF أو Word أو Excel أو JPG أو PNG.");
+    }
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return errorState("انتهت جلسة الدخول.");
+
+  const bucket = "legal-documents";
+  const uploadedPaths: string[] = [];
+
+  for (const [index, file] of files.entries()) {
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const extension = file.name.includes(".")
+      ? `.${file.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`
+      : "";
+    const storagePath = `${user.id}/${parsed.data.requestId}/${randomUUID()}${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, bytes, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      if (uploadedPaths.length) {
+        await createAdminClient().storage.from(bucket).remove(uploadedPaths);
+      }
+      return errorState("تعذر رفع أحد الملفات إلى التخزين الخاص.");
+    }
+    uploadedPaths.push(storagePath);
+
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const { data: documentId, error } = await supabase.rpc(
+      "register_request_document",
+      {
+        p_request_id: parsed.data.requestId,
+        p_title:
+          files.length === 1
+            ? parsed.data.title
+            : `${parsed.data.title} - ${index + 1}`,
+        p_document_type: parsed.data.documentType,
+        p_storage_bucket: bucket,
+        p_storage_path: storagePath,
+        p_file_name: file.name,
+        p_mime_type: file.type,
+        p_byte_size: file.size,
+        p_sha256: sha256,
+        p_publish_to_client: false,
+      },
+    );
+
+    if (error || !documentId) {
+      await createAdminClient().storage.from(bucket).remove(uploadedPaths);
+      return errorState(rpcMessage(error, "تم رفع ملف لكن تعذر تسجيله؛ ألغيت عملية الرفع."));
+    }
+
+    const { error: metadataError } = await supabase.rpc(
+      "update_document_metadata",
+      {
+        p_document_id: documentId,
+        p_document_category_id: parsed.data.documentCategoryId || null,
+        p_document_number: parsed.data.documentNumber ?? null,
+        p_document_date: parsed.data.documentDate || null,
+        p_description: parsed.data.description ?? null,
+        p_page_count:
+          parsed.data.pageCount === "" ? null : parsed.data.pageCount ?? null,
+      },
+    );
+    if (metadataError) {
+      refreshRequest(parsed.data.requestId);
+      return errorState("تم رفع المستند لكن تعذر حفظ بيانات الفهرسة.");
+    }
+
+    if (
+      parsed.data.visibility !== "internal" ||
+      parsed.data.publicationStatus !== "draft"
+    ) {
+      const { error: publicationError } = await supabase.rpc(
+        "set_document_client_publication",
+        {
+          p_document_id: documentId,
+          p_status: parsed.data.publicationStatus,
+          p_visibility: parsed.data.visibility,
+        },
+      );
+      if (publicationError) {
+        refreshRequest(parsed.data.requestId);
+        return errorState("تم رفع المستند كمسودة داخلية لكن تعذر تطبيق إعدادات النشر.");
+      }
+    }
+  }
+
+  refreshRequest(parsed.data.requestId);
+  return successState(
+    files.length === 1
+      ? "تم رفع المستند وحفظ بياناته."
+      : `تم رفع ${files.length} مستندات وحفظ بياناتها.`,
+  );
 }
 
 export async function updateDocumentPublicationAction(

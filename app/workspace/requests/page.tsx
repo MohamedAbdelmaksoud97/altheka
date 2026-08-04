@@ -9,7 +9,10 @@ import {
   UserPlus,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { CreateRequestForm } from "@/components/pre-contract/forms";
+import {
+  CreateRequestForm,
+  InviteClientForm,
+} from "@/components/pre-contract/forms";
 import { getAccessContext } from "@/lib/auth/access";
 import {
   labelFor,
@@ -172,6 +175,7 @@ export default async function RequestsPage({
     { data: requests },
     { data: clients },
     { data: litigationCategories },
+    { data: clientSources },
   ] = await Promise.all([
     requestQuery,
     canCreateRequests
@@ -187,6 +191,13 @@ export default async function RequestsPage({
     canCreateRequests
       ? supabase
           .from("litigation_case_categories")
+          .select("id, code, name, sort_order")
+          .eq("is_active", true)
+          .order("sort_order")
+      : Promise.resolve({ data: [], error: null }),
+    canCreateRequests
+      ? supabase
+          .from("client_sources")
           .select("id, code, name, sort_order")
           .eq("is_active", true)
           .order("sort_order")
@@ -249,6 +260,40 @@ export default async function RequestsPage({
     ? "طلبات العملاء"
     : "مهامي قبل التعاقد";
 
+  const kanbanColumns = [
+    { key: "new", title: "جديد", statuses: ["received", "linked"] },
+    {
+      key: "collecting",
+      title: "جمع مستندات",
+      statuses: ["collecting_documents", "assigned"],
+    },
+    {
+      key: "study",
+      title: "قيد الدراسة",
+      statuses: ["study_returned", "study_pending_approval"],
+    },
+    {
+      key: "approval",
+      title: "بانتظار اعتماد",
+      statuses: ["study_approved", "proposal_sent", "contract_sent"],
+    },
+    {
+      key: "client",
+      title: "بانتظار العميل",
+      statuses: [
+        "discount_requested",
+        "negotiating",
+        "proposal_accepted",
+        "contract_accepted",
+      ],
+    },
+    {
+      key: "closed",
+      title: "مغلق",
+      statuses: ["rejected", "cancelled", "converted_to_project"],
+    },
+  ];
+
   return (
     <AppShell
       access={access}
@@ -263,8 +308,12 @@ export default async function RequestsPage({
               إنشاء طلب وربط حساب العميل
             </h2>
           </div>
+          <div className="mb-6 border-b border-line pb-6">
+            <InviteClientForm clientSources={clientSources ?? []} />
+          </div>
           <CreateRequestForm
             clients={clients ?? []}
+            clientSources={clientSources ?? []}
             litigationCategories={(litigationCategories ?? []).map(
               (category) => ({
                 id: category.id,
@@ -299,6 +348,38 @@ export default async function RequestsPage({
           </Link>
         ))}
       </nav>
+
+      <section className="mb-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {kanbanColumns.map((column) => {
+          const columnRequests = (requests ?? []).filter((request) =>
+            column.statuses.includes(request.status),
+          );
+          return (
+            <div
+              key={column.key}
+              className="rounded-md border border-line bg-surface p-3"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold">{column.title}</h2>
+                <span className="rounded-sm bg-[#e5eee9] px-2 py-1 text-xs font-bold text-brand">
+                  {columnRequests.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {columnRequests.slice(0, 3).map((request) => (
+                  <Link
+                    key={request.id}
+                    href={`/workspace/requests/${request.id}`}
+                    className="block rounded-md border border-line bg-white px-3 py-2 text-xs font-bold leading-5 hover:border-brand"
+                  >
+                    {request.title}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </section>
 
       <form className="grid gap-3 border-y border-line bg-surface px-5 py-4 sm:grid-cols-[1fr_15rem_auto]">
         <input type="hidden" name="scope" value={scope} />

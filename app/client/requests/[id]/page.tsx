@@ -49,6 +49,7 @@ export default async function ClientRequestPage({
     contractsResult,
     documentsResult,
     projectResult,
+    documentCategoriesResult,
   ] = await Promise.all([
     supabase
       .from("service_requests")
@@ -77,13 +78,19 @@ export default async function ClientRequestPage({
     supabase
       .from("documents")
       .select(
-        "id, title, document_type, current_version_number, created_at, document_versions(id, version_number, file_name, byte_size, uploaded_at)",
+        "id, title, document_type, document_number, document_date, description, page_count, current_version_number, created_at, document_categories(name), document_versions(id, version_number, file_name, byte_size, uploaded_at)",
       )
       .eq("service_request_id", id)
       .order("created_at", { ascending: false }),
     supabase.rpc("get_my_client_project_for_request", {
       p_service_request_id: id,
     }),
+    supabase
+      .from("document_categories")
+      .select("id, code, name, scope, sort_order")
+      .eq("is_active", true)
+      .in("scope", ["all", "request", "client"])
+      .order("sort_order"),
   ]);
 
   const request = requestResult.data;
@@ -123,6 +130,14 @@ export default async function ClientRequestPage({
     contractVersions.find(
       (version) => version.version_number === contract?.current_version_number,
     ) ?? null;
+  const requiredClientAction =
+    currentContractVersion?.status === "sent"
+      ? "قبول العقد"
+      : latestProposal?.status === "sent"
+        ? "الرد على العرض الفني والمالي"
+        : documents.some((document) => document.document_type === "client_attachment")
+          ? null
+          : "رفع المستندات المطلوبة";
 
   const linkedProject = (
     (projectResult.data ?? []) as {
@@ -185,6 +200,15 @@ export default async function ClientRequestPage({
           <span className="text-sm font-bold text-emerald-800">
             {linkedProject.name}
           </span>
+        </section>
+      ) : null}
+
+      {requiredClientAction ? (
+        <section className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-xs font-bold text-amber-700">الإجراء المطلوب منك</p>
+          <h2 className="mt-1 font-bold text-amber-950">
+            {requiredClientAction}
+          </h2>
         </section>
       ) : null}
 
@@ -282,7 +306,10 @@ export default async function ClientRequestPage({
               <h2 className="font-bold">رفع مستند</h2>
             </div>
             <div className="p-5">
-              <UploadDocumentForm requestId={request.id} />
+              <UploadDocumentForm
+                requestId={request.id}
+                documentCategories={documentCategoriesResult.data ?? []}
+              />
             </div>
           </section>
         </div>
@@ -300,6 +327,16 @@ export default async function ClientRequestPage({
                     <p className="text-sm font-bold">{document.title}</p>
                     <p className="mt-1 truncate text-xs text-muted">
                       {document.version?.file_name}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-muted">
+                      {((document.document_categories as { name?: string } | null)
+                        ?.name ?? document.document_type)}
+                      {document.document_number
+                        ? ` · رقم ${document.document_number}`
+                        : ""}
+                      {document.page_count
+                        ? ` · ${document.page_count} صفحة`
+                        : ""}
                     </p>
                     {document.version ? (
                       <a

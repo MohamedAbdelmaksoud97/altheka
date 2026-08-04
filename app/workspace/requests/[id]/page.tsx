@@ -65,6 +65,7 @@ export default async function WorkspaceRequestPage({
     eventsResult,
     eligibleStaffResult,
     projectResult,
+    documentCategoriesResult,
   ] = await Promise.all([
     supabase
       .from("service_requests")
@@ -104,7 +105,7 @@ export default async function WorkspaceRequestPage({
     supabase
       .from("documents")
       .select(
-        "id, title, document_type, visibility, client_visibility_status, current_version_number, published_to_client_at, withdrawn_at, created_at, document_versions(id, version_number, file_name, byte_size, uploaded_at), document_access_events(id, created_at)",
+        "id, title, document_type, document_number, document_date, description, page_count, visibility, client_visibility_status, current_version_number, published_to_client_at, withdrawn_at, created_at, document_categories(name), document_versions(id, version_number, file_name, byte_size, uploaded_at), document_access_events(id, created_at)",
       )
       .eq("service_request_id", id)
       .order("created_at", { ascending: false }),
@@ -119,6 +120,12 @@ export default async function WorkspaceRequestPage({
       .select("id, name, status, litigation_case_category_id")
       .eq("service_request_id", id)
       .maybeSingle(),
+    supabase
+      .from("document_categories")
+      .select("id, code, name, scope, sort_order")
+      .eq("is_active", true)
+      .in("scope", ["all", "request"])
+      .order("sort_order"),
   ]);
 
   const request = requestResult.data;
@@ -467,6 +474,7 @@ export default async function WorkspaceRequestPage({
               <UploadDocumentForm
                 requestId={request.id}
                 canPublish={canManagePublication}
+                documentCategories={documentCategoriesResult.data ?? []}
               />
             </OperationSection>
           ) : null}
@@ -525,6 +533,26 @@ export default async function WorkspaceRequestPage({
                     <p className="mt-1 truncate text-xs text-muted">
                       {document.version?.file_name}
                     </p>
+                    <p className="mt-1 text-[11px] leading-5 text-muted">
+                      {((document.document_categories as { name?: string } | null)
+                        ?.name ?? document.document_type)}
+                      {document.document_number
+                        ? ` · رقم ${document.document_number}`
+                        : ""}
+                      {document.document_date
+                        ? ` · ${new Intl.DateTimeFormat("ar-EG").format(
+                            new Date(document.document_date),
+                          )}`
+                        : ""}
+                      {document.page_count
+                        ? ` · ${document.page_count} صفحة`
+                        : ""}
+                    </p>
+                    {document.description ? (
+                      <p className="mt-1 text-xs leading-5 text-muted">
+                        {document.description}
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex items-center justify-between gap-3">
                       <span className="text-[11px] text-muted">
                         {documentStatusLabels[
