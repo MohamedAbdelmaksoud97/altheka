@@ -10,6 +10,7 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleDot,
+  ClipboardList,
   Clock3,
   Download,
   FileText,
@@ -846,6 +847,62 @@ export default async function ProjectPage({
   const isCurrentActionAssignee = currentActionAssigneeIds.includes(
     access.userId,
   );
+  const legalTaskCards = (caseActionsResult.data ?? []).map((action) => {
+    const assigneeIds = (
+      litigationAssigneesByAction.get(action.id) ?? [action.assigned_to]
+    ).filter((value): value is string => Boolean(value));
+    const submission = latestSubmissionByAction.get(action.id) ?? null;
+    const review = submission
+      ? relationOne(submission.litigation_action_submission_reviews)
+      : null;
+    return {
+      action,
+      assigneeIds,
+      assigneeNames: assigneeIds.map(
+        (userId) => assigneeDirectory.get(userId) ?? "مكلف",
+      ),
+      submission,
+      review,
+      isAssignee: assigneeIds.includes(access.userId),
+    };
+  });
+  const taskColumns = [
+    {
+      code: "open",
+      title: "مفتوحة",
+      helper: "مهام لم تنته فعليًا وتحتاج عملًا أو متابعة.",
+      cards: legalTaskCards.filter(({ action }) =>
+        ["planned", "in_progress", "returned_for_revision"].includes(
+          action.status,
+        ),
+      ),
+    },
+    {
+      code: "review",
+      title: "بانتظار المراجعة",
+      helper: "رد المحامي وصل وينتظر قرار الاعتماد أو الإعادة.",
+      cards: legalTaskCards.filter(
+        ({ action }) => action.status === "awaiting_approval",
+      ),
+    },
+    {
+      code: "proposal",
+      title: "المقترح القادم",
+      helper: "المهمة القادمة المقترحة من المحامي بعد الرد.",
+      cards: legalTaskCards.filter(
+        ({ submission, review }) =>
+          Boolean(submission?.proposed_next_action_title) && !review,
+      ),
+    },
+    {
+      code: "done",
+      title: "مكتملة",
+      helper: "مهام انتهت واعتمدت أو أغلقت.",
+      cards: legalTaskCards.filter(({ action }) =>
+        ["completed", "cancelled", "superseded"].includes(action.status),
+      ),
+    },
+  ];
   const completedActions = actions.filter((action) =>
     ["approved", "completed"].includes(action.status),
   ).length;
@@ -1037,6 +1094,7 @@ export default async function ProjectPage({
   const tabs = [
     { code: "overview", label: "نظرة عامة", show: true },
     { code: "setup", label: "التأسيس والمسار", show: true },
+    { code: "tasks", label: "المهام", show: isLitigation },
     { code: "litigation", label: "المرافعة والجلسات", show: isLitigation },
     { code: "estate", label: "التركة والأصول", show: isEstate },
     {
@@ -1608,6 +1666,261 @@ export default async function ProjectPage({
                   <ProposedTaskForm projectId={project.id} stages={teamStageOptions} />
                 </aside>
               ) : null}
+            </section>
+          ) : null}
+        </div>
+      ) : null}
+
+      {view === "tasks" && isLitigation ? (
+        <div className="mt-6 space-y-7">
+          <section className="rounded-md border border-line bg-surface p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <ClipboardList className="mt-1 size-5 text-brand" aria-hidden="true" />
+                <div>
+                  <h2 className="font-bold">مهام القضية</h2>
+                  <p className="mt-1 text-sm leading-7 text-muted">
+                    المهام القانونية تظل مفتوحة حتى تنتهي فعليًا بالاعتماد أو الإغلاق، حتى لو تم رفع رد أو ظهر طارئ عليها.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/workspace/tasks"
+                className="inline-flex min-h-10 items-center rounded-md border border-line bg-white px-4 text-sm font-bold text-brand"
+              >
+                كل مهامي
+              </Link>
+            </div>
+          </section>
+
+          {litigationCase ? (
+            <section className="grid gap-4 xl:grid-cols-4">
+              {taskColumns.map((column) => (
+                <div
+                  key={column.code}
+                  className="rounded-md border border-line bg-[#f7f8f7]"
+                >
+                  <div className="border-b border-line bg-surface px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-bold">{column.title}</h3>
+                      <span className="rounded-md bg-[#eef1ef] px-2.5 py-1 text-xs font-bold tabular-nums">
+                        {column.cards.length}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-6 text-muted">
+                      {column.helper}
+                    </p>
+                  </div>
+                  <div className="space-y-3 p-3">
+                    {column.cards.length ? (
+                      column.cards.map(({ action, assigneeNames, submission, review, isAssignee }) => {
+                        const canReviewSubmission =
+                          action.status === "awaiting_approval" &&
+                          submission &&
+                          !review &&
+                          submission.submitted_by !== access.userId &&
+                          (canApproveLitigationAction ||
+                            canReturnLitigationAction);
+                        const canRespond =
+                          isAssignee &&
+                          canRespondToLitigationAction &&
+                          ["in_progress", "returned_for_revision"].includes(
+                            action.status,
+                          );
+                        const canStart =
+                          isAssignee &&
+                          canRespondToLitigationAction &&
+                          action.status === "planned";
+
+                        return (
+                          <article
+                            key={`${column.code}-${action.id}`}
+                            className="rounded-md border border-line bg-surface p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-bold text-brand">
+                                  المهمة
+                                </p>
+                                <h4 className="mt-1 font-bold">
+                                  {action.title}
+                                </h4>
+                              </div>
+                              <span className="rounded-md border border-line px-2.5 py-1 text-[11px] font-bold text-muted">
+                                {litigationActionStatusLabels[action.status] ??
+                                  action.status}
+                              </span>
+                            </div>
+
+                            <dl className="mt-4 space-y-2 text-xs leading-6 text-muted">
+                              <div>
+                                <dt className="font-bold text-ink">المكلف</dt>
+                                <dd>
+                                  {assigneeNames.length
+                                    ? assigneeNames.join("، ")
+                                    : "غير مسند"}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="font-bold text-ink">الموعد</dt>
+                                <dd>
+                                  {action.due_at
+                                    ? dateTime.format(new Date(action.due_at))
+                                    : action.legal_due_date ?? "دون تاريخ"}
+                                </dd>
+                              </div>
+                            </dl>
+
+                            {submission ? (
+                              <div className="mt-4 rounded-md border border-line bg-white p-3">
+                                <p className="text-xs font-bold text-brand">
+                                  رد المحامي
+                                </p>
+                                <p className="mt-2 text-sm leading-7">
+                                  {submission.result_summary}
+                                </p>
+                                {submission.execution_notes ? (
+                                  <p className="mt-2 text-xs leading-6 text-muted">
+                                    {submission.execution_notes}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <p className="mt-4 rounded-md bg-white px-3 py-2 text-xs text-muted">
+                                لم يرفع رد المحامي بعد.
+                              </p>
+                            )}
+
+                            {submission?.proposed_next_action_title ? (
+                              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                                <p className="text-xs font-bold text-amber-900">
+                                  المهمة القادمة المقترحة من المحامي
+                                </p>
+                                <p className="mt-2 text-sm font-bold">
+                                  {submission.proposed_next_action_title}
+                                </p>
+                                <p className="mt-1 text-xs text-amber-900">
+                                  {submission.proposed_next_action_due_at
+                                    ? dateTime.format(
+                                        new Date(
+                                          submission.proposed_next_action_due_at,
+                                        ),
+                                      )
+                                    : submission.proposed_next_action_legal_due_date ??
+                                      "دون موعد مقترح"}
+                                </p>
+                              </div>
+                            ) : null}
+
+                            {review ? (
+                              <p className="mt-3 rounded-md border border-line bg-white px-3 py-2 text-xs leading-6 text-muted">
+                                {review.decision === "approved"
+                                  ? "تم قبول الرد والاقتراح."
+                                  : `تم رفض/إرجاع الرد: ${review.review_notes ?? "دون ملاحظة"}`}
+                              </p>
+                            ) : null}
+
+                            {canStart ? (
+                              <div className="mt-4 border-t border-line pt-4">
+                                <StartLitigationActionForm
+                                  projectId={project.id}
+                                  actionId={action.id}
+                                />
+                              </div>
+                            ) : null}
+
+                            {canRespond ? (
+                              <details className="mt-4 border-t border-line pt-4">
+                                <summary className="cursor-pointer text-sm font-bold text-brand">
+                                  رفع/تعديل رد المحامي
+                                </summary>
+                                <div className="mt-4">
+                                  <LitigationActionResponseForm
+                                    projectId={project.id}
+                                    actionId={action.id}
+                                    returnedReason={action.return_reason}
+                                  />
+                                </div>
+                              </details>
+                            ) : null}
+
+                            {canReviewSubmission ? (
+                              <details className="mt-4 border-t border-line pt-4" open={column.code === "proposal"}>
+                                <summary className="cursor-pointer text-sm font-bold text-brand">
+                                  قبول الاقتراح أو رفضه
+                                </summary>
+                                <div className="mt-4">
+                                  <LitigationActionReviewForm
+                                    projectId={project.id}
+                                    submissionId={submission.id}
+                                  />
+                                </div>
+                              </details>
+                            ) : null}
+
+                            {canIssueAttentionNotice &&
+                            !["completed", "cancelled", "superseded"].includes(
+                              action.status,
+                            ) ? (
+                              <details className="mt-4 border-t border-line pt-4">
+                                <summary className="cursor-pointer text-sm font-bold text-brand">
+                                  لفت نظر
+                                </summary>
+                                <div className="mt-4">
+                                  <AttentionNoticeForm
+                                    projectId={project.id}
+                                    subjectType="litigation"
+                                    subjectId={action.id}
+                                    assignees={(
+                                      litigationAssigneesByAction.get(action.id) ??
+                                      [action.assigned_to]
+                                    )
+                                      .filter((userId): userId is string =>
+                                        Boolean(userId),
+                                      )
+                                      .map((userId) => ({
+                                        id: userId,
+                                        name:
+                                          assigneeDirectory.get(userId) ??
+                                          "مكلف",
+                                      }))}
+                                  />
+                                </div>
+                              </details>
+                            ) : null}
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <p className="rounded-md border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
+                        لا توجد مهام هنا.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </section>
+          ) : (
+            <section className="rounded-md border border-line bg-surface p-5">
+              <p className="text-sm text-muted">
+                أنشئ بطاقة القضية أولًا حتى تظهر مهام التقاضي.
+              </p>
+              {canManageCase ? (
+                <div className="mt-4">
+                  <LitigationCaseForm projectId={project.id} initial={litigationCase} />
+                </div>
+              ) : null}
+            </section>
+          )}
+
+          {litigationCase && !currentAction && canSetNextAction ? (
+            <section className="rounded-md border border-line bg-surface p-5">
+              <h2 className="mb-4 font-bold">إضافة مهمة قانونية قادمة</h2>
+              <NextActionForm
+                projectId={project.id}
+                caseId={litigationCase.id}
+                members={memberDirectory}
+              />
             </section>
           ) : null}
         </div>
