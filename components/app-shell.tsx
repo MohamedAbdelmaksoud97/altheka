@@ -1,22 +1,85 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
-  Bell,
   BarChart3,
+  Bell,
   BriefcaseBusiness,
   CalendarDays,
   ClipboardList,
   Files,
   LayoutDashboard,
   LogOut,
+  Menu,
   ScanSearch,
   Settings2,
-  ScrollText,
   ShieldCheck,
   Tags,
+  ScrollText,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import type { AccessContext } from "@/lib/auth/access";
+
+type NavigationItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+function Brand({ homeHref, compact = false }: { homeHref: string; compact?: boolean }) {
+  return (
+    <Link href={homeHref} className="flex min-w-0 items-center gap-3">
+      <Image
+        src="/logo.png"
+        alt="أساس الثقة"
+        width={52}
+        height={52}
+        className="size-12 shrink-0 rounded-md object-cover"
+        priority
+      />
+      <div className={compact ? "min-w-0" : "min-w-0"}>
+        <p className="font-bold leading-6">أساس الثقة</p>
+        <p className="text-xs leading-5 text-muted">منصة العمليات القانونية</p>
+      </div>
+    </Link>
+  );
+}
+
+function NavigationLinks({ items }: { items: NavigationItem[] }) {
+  return (
+    <nav aria-label="التنقل الرئيسي" className="grid gap-1">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-bold text-muted transition hover:bg-[#eef1ef] hover:text-brand"
+          >
+            <Icon className="size-5 shrink-0" aria-hidden="true" />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function LogoutButton({ fullWidth = false }: { fullWidth?: boolean }) {
+  return (
+    <form action={logoutAction}>
+      <button
+        type="submit"
+        className={`flex min-h-11 items-center justify-center gap-3 rounded-md border border-line bg-white px-3 text-sm font-bold text-muted transition hover:border-danger hover:text-danger ${
+          fullWidth ? "w-full" : ""
+        }`}
+      >
+        <LogOut className="size-5 shrink-0" aria-hidden="true" />
+        <span>تسجيل الخروج</span>
+      </button>
+    </form>
+  );
+}
 
 export function AppShell({
   access,
@@ -39,6 +102,8 @@ export function AppShell({
   ].some((permission) => access.permissions.includes(permission));
   const canOpenRequests = canManageRequests || canWorkPreContract;
   const canOpenProjects = access.accountKind === "staff";
+  const isActiveStaff =
+    access.accountKind === "staff" && access.activationStatus === "active_staff";
   const canOpenSupervision = access.permissions.includes("supervision.read");
   const canManageCaseCategories = access.permissions.includes(
     "case_categories.manage",
@@ -48,165 +113,138 @@ export function AppShell({
     (access.roleCodes.includes("super_admin") ||
       access.roleCodes.includes("executive_manager"));
 
-  return (
-    <div className="min-h-screen">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex min-h-18 max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link href={homeHref} className="flex min-w-0 items-center gap-3">
-            <Image
-              src="/logo.png"
-              alt="أساس الثقة"
-              width={52}
-              height={52}
-              className="size-12 shrink-0 rounded-md object-cover"
-              priority
-            />
-            <div className="hidden min-w-0 sm:block">
-              <p className="font-bold">أساس الثقة</p>
-              <p className="text-xs text-muted">منصة العمليات القانونية</p>
-            </div>
-          </Link>
+  const navigationItems: NavigationItem[] = [
+    {
+      href: homeHref,
+      label: "لوحة البداية",
+      icon: LayoutDashboard,
+    },
+    ...(canOpenRequests
+      ? [
+          {
+            href: "/workspace/requests",
+            label: canManageRequests ? "طلبات العملاء" : "مهامي قبل التعاقد",
+            icon: Files,
+          },
+        ]
+      : []),
+    ...(canOpenProjects
+      ? [
+          {
+            href: "/workspace/projects",
+            label: "المشاريع",
+            icon: BriefcaseBusiness,
+          },
+        ]
+      : []),
+    ...(isActiveStaff
+      ? [
+          {
+            href: "/workspace/tasks",
+            label: "المهام التشغيلية",
+            icon: ClipboardList,
+          },
+          {
+            href: "/workspace/calendar",
+            label: "التقويم",
+            icon: CalendarDays,
+          },
+          {
+            href: "/workspace/powers-of-attorney",
+            label: "التوكيلات",
+            icon: ScrollText,
+          },
+          {
+            href: "/workspace/notifications",
+            label: "الإشعارات",
+            icon: Bell,
+          },
+        ]
+      : []),
+    ...(canOpenSupervision ||
+    access.permissions.includes("tasks.approve_proposed") ||
+    access.permissions.includes("projects.read_all")
+      ? [
+          {
+            href: "/workspace/reports",
+            label: "تقارير التشغيل",
+            icon: BarChart3,
+          },
+        ]
+      : []),
+    ...(canOpenSupervision
+      ? [
+          {
+            href: "/workspace/supervision",
+            label: "لوحة الإشراف",
+            icon: ScanSearch,
+          },
+        ]
+      : []),
+    ...(canApproveStaff
+      ? [
+          {
+            href: "/admin/staff",
+            label: "إدارة الموظفين",
+            icon: Settings2,
+          },
+        ]
+      : []),
+    ...(canOpenAuditLog
+      ? [
+          {
+            href: "/workspace/audit-log",
+            label: "سجل التدقيق",
+            icon: ShieldCheck,
+          },
+        ]
+      : []),
+    ...(canManageCaseCategories
+      ? [
+          {
+            href: "/admin/case-categories",
+            label: "أنواع القضايا",
+            icon: Tags,
+          },
+        ]
+      : []),
+  ];
 
-          <div className="flex items-center gap-2">
-            <Link
-              href={homeHref}
-              title="لوحة البداية"
-              className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-            >
-              <LayoutDashboard className="size-5" aria-hidden="true" />
-              <span className="sr-only">لوحة البداية</span>
-            </Link>
-            {canOpenRequests ? (
-              <Link
-                href="/workspace/requests"
-                title={
-                  canManageRequests
-                    ? "طلبات العملاء"
-                    : "مهامي قبل التعاقد"
-                }
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <Files className="size-5" aria-hidden="true" />
-                <span className="sr-only">
-                  {canManageRequests
-                    ? "طلبات العملاء"
-                    : "مهامي قبل التعاقد"}
-                </span>
-              </Link>
-            ) : null}
-            {canOpenProjects ? (
-              <Link
-                href="/workspace/projects"
-                title="المشاريع"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <BriefcaseBusiness className="size-5" aria-hidden="true" />
-                <span className="sr-only">المشاريع</span>
-              </Link>
-            ) : null}
-            {access.accountKind === "staff" &&
-            access.activationStatus === "active_staff" ? (
-              <>
-                <Link
-                  href="/workspace/tasks"
-                  title="المهام التشغيلية"
-                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-                >
-                  <ClipboardList className="size-5" aria-hidden="true" />
-                  <span className="sr-only">المهام التشغيلية</span>
-                </Link>
-                <Link
-                  href="/workspace/calendar"
-                  title="التقويم"
-                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-                >
-                  <CalendarDays className="size-5" aria-hidden="true" />
-                  <span className="sr-only">التقويم</span>
-                </Link>
-                <Link
-                  href="/workspace/powers-of-attorney"
-                  title="الوكالات"
-                  className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-                >
-                  <ScrollText className="size-5" aria-hidden="true" />
-                  <span className="sr-only">الوكالات</span>
-                </Link>
-              </>
-            ) : null}
-            {access.accountKind === "staff" &&
-            access.activationStatus === "active_staff" ? (
-              <Link
-                href="/workspace/notifications"
-                title="الإشعارات"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <Bell className="size-5" aria-hidden="true" />
-                <span className="sr-only">الإشعارات</span>
-              </Link>
-            ) : null}
-            {canOpenSupervision ||
-            access.permissions.includes("tasks.approve_proposed") ||
-            access.permissions.includes("projects.read_all") ? (
-              <Link
-                href="/workspace/reports"
-                title="تقارير التشغيل"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <BarChart3 className="size-5" aria-hidden="true" />
-                <span className="sr-only">تقارير التشغيل</span>
-              </Link>
-            ) : null}
-            {canOpenSupervision ? (
-              <Link
-                href="/workspace/supervision"
-                title="لوحة الإشراف"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <ScanSearch className="size-5" aria-hidden="true" />
-                <span className="sr-only">لوحة الإشراف</span>
-              </Link>
-            ) : null}
-            {canApproveStaff ? (
-              <Link
-                href="/admin/staff"
-                title="إدارة الموظفين"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <Settings2 className="size-5" aria-hidden="true" />
-                <span className="sr-only">إدارة الموظفين</span>
-              </Link>
-            ) : null}
-            {canOpenAuditLog ? (
-              <Link
-                href="/workspace/audit-log"
-                title="سجل التدقيق"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <ShieldCheck className="size-5" aria-hidden="true" />
-                <span className="sr-only">سجل التدقيق</span>
-              </Link>
-            ) : null}
-            {canManageCaseCategories ? (
-              <Link
-                href="/admin/case-categories"
-                title="أنواع القضايا"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand"
-              >
-                <Tags className="size-5" aria-hidden="true" />
-                <span className="sr-only">أنواع القضايا</span>
-              </Link>
-            ) : null}
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                title="تسجيل الخروج"
-                className="grid size-10 place-items-center rounded-md border border-line bg-white text-muted transition hover:border-danger hover:text-danger"
-              >
-                <LogOut className="size-5" aria-hidden="true" />
-                <span className="sr-only">تسجيل الخروج</span>
-              </button>
-            </form>
-          </div>
+  return (
+    <div className="min-h-screen lg:pr-72">
+      <aside className="fixed inset-y-0 right-0 z-30 hidden w-72 border-l border-line bg-surface lg:flex lg:flex-col">
+        <div className="border-b border-line px-5 py-5">
+          <Brand homeHref={homeHref} />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          <NavigationLinks items={navigationItems} />
+        </div>
+        <div className="border-t border-line p-3">
+          <p className="mb-3 truncate px-2 text-xs font-bold text-muted">
+            {access.fullName}
+          </p>
+          <LogoutButton fullWidth />
+        </div>
+      </aside>
+
+      <header className="sticky top-0 z-40 border-b border-line bg-surface lg:hidden">
+        <div className="flex min-h-18 items-center justify-between gap-3 px-4 py-3">
+          <Brand homeHref={homeHref} compact />
+          <details className="relative [&_summary::-webkit-details-marker]:hidden">
+            <summary className="grid size-11 cursor-pointer list-none place-items-center rounded-md border border-line bg-white text-muted transition hover:border-brand hover:text-brand">
+              <Menu className="size-5" aria-hidden="true" />
+              <span className="sr-only">فتح القائمة</span>
+            </summary>
+            <div className="absolute left-0 top-14 w-[min(20rem,calc(100vw-2rem))] rounded-md border border-line bg-surface p-3 shadow-lg">
+              <NavigationLinks items={navigationItems} />
+              <div className="mt-3 border-t border-line pt-3">
+                <p className="mb-3 truncate px-2 text-xs font-bold text-muted">
+                  {access.fullName}
+                </p>
+                <LogoutButton fullWidth />
+              </div>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -216,7 +254,9 @@ export function AppShell({
             <p className="text-sm font-bold text-brand">{eyebrow}</p>
             <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
               <h1 className="text-2xl font-bold">{title}</h1>
-              <p className="text-sm text-muted">{access.fullName}</p>
+              <p className="hidden text-sm text-muted sm:block lg:hidden">
+                {access.fullName}
+              </p>
             </div>
           </div>
         </div>
