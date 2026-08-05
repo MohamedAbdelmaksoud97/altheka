@@ -3007,8 +3007,15 @@ export default async function ProjectPage({
       ) : null}
 
       {view === "messages" ? (
-        <div className="mt-6 grid gap-7 xl:grid-cols-2">
-          {(conversationsResult.data ?? []).map((conversation) => {
+        <div className="mt-6">
+          {conversationsResult.error ? (
+            <section className="rounded-md border border-red-200 bg-red-50 px-5 py-6 text-sm leading-7 text-red-800">
+              تعذر تحميل محادثات المشروع. راجع صلاحيات قراءة المحادثات أو عضوية
+              المستخدم في قنوات المشروع.
+            </section>
+          ) : (conversationsResult.data ?? []).length ? (
+            <div className="grid gap-7 xl:grid-cols-2">
+              {(conversationsResult.data ?? []).map((conversation) => {
             const channelMessages = (messages ?? []).filter(
               (message) => message.conversation_id === conversation.id,
             );
@@ -3076,7 +3083,17 @@ export default async function ProjectPage({
                 ) : null}
               </section>
             );
-          })}
+              })}
+            </div>
+          ) : (
+            <section className="rounded-md border border-dashed border-line bg-surface px-5 py-10 text-center">
+              <h2 className="text-lg font-bold">لا توجد قنوات محادثة لهذا المشروع</h2>
+              <p className="mt-2 text-sm leading-7 text-muted">
+                تظهر هنا محادثة العميل والمحادثة الداخلية بعد إنشائهما وربط
+                المشاركين بالمشروع.
+              </p>
+            </section>
+          )}
         </div>
       ) : null}
     </AppShell>
