@@ -313,13 +313,28 @@ export function AppointmentForm({
         />
       </div>
       <input name="location" placeholder="المكان" className={inputClass} />
-      <select name="participant_user_ids" multiple className="min-h-32 w-full rounded-md border border-line bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none">
-        {staff.map((member) => (
-          <option key={member.id} value={member.id}>
-            {member.name}
-          </option>
-        ))}
-      </select>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-bold text-ink">المشاركون في الموعد</legend>
+        <p className="text-xs leading-6 text-muted">
+          اختر الموظفين الذين سيظهر لهم هذا الموعد ضمن التقويم.
+        </p>
+        <div className="grid max-h-52 gap-2 overflow-y-auto rounded-md border border-line bg-white p-3 sm:grid-cols-2">
+          {staff.map((member) => (
+            <label
+              key={member.id}
+              className="flex min-h-10 items-center gap-2 rounded-md border border-line/70 px-3 py-2 text-sm font-medium text-ink"
+            >
+              <input
+                type="checkbox"
+                name="participant_user_ids"
+                value={member.id}
+                className="size-4 rounded border-line text-brand focus:ring-brand"
+              />
+              <span>{member.name}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <textarea
         name="description"
         rows={3}
