@@ -84,6 +84,9 @@ export default async function TasksPage({
   const access = await getAccessContext();
   if (!access) redirect("/login");
   if (access.activationStatus !== "active_staff") redirect("/waiting");
+  const canReviewOperationalItems = access.permissions.includes(
+    "attention_notices.review",
+  );
 
   const { filter = "mine" } = await searchParams;
   const activeFilter = filterTabs.some((tab) => tab.key === filter)
@@ -179,11 +182,13 @@ export default async function TasksPage({
     const mine = participants.some(
       (participant) => participant.user_id === access.userId,
     );
-    const approver = participants.some(
-      (participant) =>
-        participant.user_id === access.userId &&
-        participant.participant_type === "approver",
-    );
+    const approver =
+      canReviewOperationalItems ||
+      participants.some(
+        (participant) =>
+          participant.user_id === access.userId &&
+          participant.participant_type === "approver",
+      );
 
     return {
       id: task.id as string,

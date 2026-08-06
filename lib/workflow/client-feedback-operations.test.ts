@@ -5,6 +5,22 @@ const migration = readFileSync(
   "supabase/migrations/20260804110000_client_feedback_operations.sql",
   "utf8",
 );
+const operationsActions = readFileSync("app/actions/operations.ts", "utf8");
+const appShell = readFileSync("components/app-shell.tsx", "utf8");
+const calendarPage = readFileSync("app/workspace/calendar/page.tsx", "utf8");
+const agenciesPage = readFileSync(
+  "app/workspace/powers-of-attorney/page.tsx",
+  "utf8",
+);
+const agenciesForm = readFileSync("components/operations/forms.tsx", "utf8");
+const agenciesFix = readFileSync(
+  "supabase/migrations/20260806220806_fix_power_of_attorney_creation_and_link_validation.sql",
+  "utf8",
+);
+const calendarRlsFix = readFileSync(
+  "supabase/migrations/20260806221852_fix_calendar_rls_recursion.sql",
+  "utf8",
+);
 
 describe("client feedback operations migration", () => {
   it("adds the client-intake and document archive model", () => {
@@ -34,6 +50,32 @@ describe("client feedback operations migration", () => {
     expect(migration).toContain("create table if not exists public.estate_party_approval_responses");
     expect(migration).toContain("notification_type, recipient_id, payload, scheduled_for");
     expect(migration).toContain("public.respond_estate_party_approval");
+  });
+
+  it("refreshes the calendar and agencies interface after a valid creation", () => {
+    expect(operationsActions).toContain("createAppointmentAction");
+    expect(operationsActions).toContain("createPowerOfAttorneyAction");
+    expect(operationsActions).toContain("refreshOperations(parsed.data.projectId || null, parsed.data.requestId || null);");
+    expect(operationsActions).toContain("refresh();");
+    expect(operationsActions).toContain("اختر العميل أو الطلب أو المشروع المرتبط بالموعد.");
+    expect(operationsActions).toContain("اختر العميل المرتبط بالوكالة.");
+    expect(appShell).toContain('label: "وكالات"');
+    expect(operationsActions).toContain(
+      "/workspace/calendar?view=week&filter=all&date=${appointmentDate}&created=1",
+    );
+    expect(calendarPage).toContain('from("appointment_participants")');
+    expect(calendarPage).toContain("participantsByAppointment");
+    expect(calendarPage).not.toContain("participant_role,profiles(full_name)");
+    expect(calendarRlsFix).toContain("private.can_read_appointment");
+    expect(calendarRlsFix).toContain("drop policy if exists appointments_access_select");
+    expect(calendarRlsFix).toContain("drop policy if exists appointment_participants_access_select");
+    expect(agenciesPage).not.toContain("documents(title,file_name)");
+    expect(agenciesPage).toContain('select("id,title,client_id,project_id,service_request_id")');
+    expect(agenciesForm).toContain("clientProjects");
+    expect(agenciesForm).toContain("clientRequests");
+    expect(agenciesForm).toContain("clientDocuments");
+    expect(agenciesFix).toContain("POA_PROJECT_CLIENT_MISMATCH");
+    expect(agenciesFix).toContain("POA_DOCUMENT_CLIENT_MISMATCH");
   });
 
   it("keeps the new surfaces behind explicit permissions, RLS, and audit", () => {

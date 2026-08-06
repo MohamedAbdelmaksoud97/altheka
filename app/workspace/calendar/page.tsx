@@ -81,7 +81,12 @@ function eventMatchesFilter(event: { kind: string; linkedType: string }, filter:
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; filter?: string; date?: string }>;
+  searchParams: Promise<{
+    view?: string;
+    filter?: string;
+    date?: string;
+    created?: string;
+  }>;
 }) {
   const access = await getAccessContext();
   if (!access) redirect("/login");
@@ -112,8 +117,7 @@ export default async function CalendarPage({
         id,title,description,starts_at,ends_at,location,status,client_id,service_request_id,project_id,
         clients(display_name),
         projects(name,project_number),
-        service_requests(title,request_number),
-        appointment_participants(participant_user_id,participant_role,profiles(full_name))
+        service_requests(title,request_number)
       `,
       )
       .gte("starts_at", start.toISOString())
@@ -150,6 +154,32 @@ export default async function CalendarPage({
       .order("full_name"),
   ]);
 
+  const appointmentIds = ((appointmentsResult.data ?? []) as any[]).map(
+    (appointment) => appointment.id as string,
+  );
+  const appointmentParticipantsResult = appointmentIds.length
+    ? await supabase
+        .from("appointment_participants")
+        .select("appointment_id,participant_user_id,participant_role")
+        .in("appointment_id", appointmentIds)
+    : { data: [], error: null };
+  const staffNameById = new Map(
+    ((staffResult.data ?? []) as Array<{ id: string; full_name: string }>).map((profile) => [
+      profile.id,
+      profile.full_name,
+    ]),
+  );
+  const participantsByAppointment = new Map<string, string[]>();
+  for (const participant of (appointmentParticipantsResult.data ?? []) as any[]) {
+    const participantName = staffNameById.get(participant.participant_user_id);
+    if (!participantName) continue;
+    const names = participantsByAppointment.get(participant.appointment_id) ?? [];
+    if (!names.includes(participantName)) names.push(participantName);
+    participantsByAppointment.set(participant.appointment_id, names);
+  }
+  const calendarLoadError =
+    appointmentsResult.error ?? hearingsResult.error ?? appointmentParticipantsResult.error;
+
   const appointmentEvents = ((appointmentsResult.data ?? []) as any[]).map((item) => {
     const project = relationOne(item.projects);
     const client = relationOne(item.clients);
@@ -168,9 +198,7 @@ export default async function CalendarPage({
       requestName: request?.title,
       requestNumber: request?.request_number,
       clientName: client?.display_name,
-      participants: ((item.appointment_participants ?? []) as any[])
-        .map((participant) => relationOne(participant.profiles)?.full_name)
-        .filter(Boolean),
+      participants: participantsByAppointment.get(item.id) ?? [],
     };
   });
 
@@ -226,6 +254,16 @@ export default async function CalendarPage({
 
   return (
     <AppShell access={access} eyebrow="جدولة العمل" title="التقويم">
+      {params.created === "1" ? (
+        <p className="mb-5 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+          تم إنشاء الموعد وإظهاره في أسبوع تاريخ الموعد.
+        </p>
+      ) : null}
+      {calendarLoadError ? (
+        <p className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          تعذر تحميل بعض بيانات التقويم. أعد تحميل الصفحة، وإذا استمرت المشكلة راجع صلاحيات التقويم.
+        </p>
+      ) : null}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <section>
           <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line bg-surface px-5 py-4">

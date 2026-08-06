@@ -990,6 +990,9 @@ export default async function ProjectPage({
   const canReturnLitigationAction = access.permissions.includes(
     "litigation.actions.return_for_revision",
   );
+  const canReviewOperationalItems = access.permissions.includes(
+    "attention_notices.review",
+  );
   const canManageHearings = access.permissions.includes(
     "litigation.manage_hearings",
   );
@@ -1591,9 +1594,8 @@ export default async function ProjectPage({
                         const canExecuteAction = canOperateWorkflow && actionParticipants.some(
                           (participant) => participant.userId === access.userId && ["executor", "responsible"].includes(participant.participantType),
                         );
-                        const canApproveAction = canOperateWorkflow && actionParticipants.some(
-                          (participant) => participant.userId === access.userId && participant.participantType === "approver",
-                        );
+                        const canApproveAction =
+                          canOperateWorkflow && canReviewOperationalItems;
                         return (
                           <article
                             key={action.id}
@@ -1934,8 +1936,10 @@ export default async function ProjectPage({
                           action.status === "awaiting_approval" &&
                           submission &&
                           !review &&
-                          submission.submitted_by !== access.userId &&
-                          (canApproveLitigationAction ||
+                          (submission.submitted_by !== access.userId ||
+                            canReviewOperationalItems) &&
+                          (canReviewOperationalItems ||
+                            canApproveLitigationAction ||
                             canReturnLitigationAction);
                         const canRespond =
                           isAssignee &&
@@ -2305,8 +2309,10 @@ export default async function ProjectPage({
                       {currentAction.status === "awaiting_approval" &&
                       currentSubmission &&
                       !currentSubmissionReview &&
-                      currentSubmission.submitted_by !== access.userId &&
-                      (canApproveLitigationAction ||
+                      (currentSubmission.submitted_by !== access.userId ||
+                        canReviewOperationalItems) &&
+                      (canReviewOperationalItems ||
+                        canApproveLitigationAction ||
                         canReturnLitigationAction) ? (
                         <div className="border-t border-line pt-5">
                           <LitigationActionReviewForm
@@ -2315,6 +2321,7 @@ export default async function ProjectPage({
                           />
                         </div>
                       ) : null}
+
                     </div>
                   ) : (
                     <p className="mb-5 text-sm font-bold text-red-700">

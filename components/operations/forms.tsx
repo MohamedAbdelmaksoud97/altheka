@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   BadgeCheck,
@@ -53,6 +53,11 @@ const textareaClass =
   "w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm leading-7 focus:border-brand focus:outline-none";
 
 type Option = { id: string; name: string; meta?: string | null };
+type LinkedOption = Option & {
+  clientId: string;
+  projectId?: string | null;
+  requestId?: string | null;
+};
 
 function ActionNotice({ state }: { state: ActionState }) {
   if (!state.message) return null;
@@ -432,9 +437,9 @@ export function PowerOfAttorneyForm({
   defaultClientId = "",
 }: {
   clients: Option[];
-  projects: Option[];
-  requests: Option[];
-  documents: Option[];
+  projects: LinkedOption[];
+  requests: LinkedOption[];
+  documents: LinkedOption[];
   defaultProjectId?: string;
   defaultClientId?: string;
 }) {
@@ -442,54 +447,129 @@ export function PowerOfAttorneyForm({
     createPowerOfAttorneyAction,
     initialActionState,
   );
+  const initialClientId =
+    defaultClientId ||
+    projects.find((project) => project.id === defaultProjectId)?.clientId ||
+    "";
+  const [clientId, setClientId] = useState(initialClientId);
+  const [projectId, setProjectId] = useState(defaultProjectId);
+  const [requestId, setRequestId] = useState("");
+  const [documentId, setDocumentId] = useState("");
+  const clientProjects = projects.filter((project) => project.clientId === clientId);
+  const clientRequests = requests.filter((request) => request.clientId === clientId);
+  const clientDocuments = documents.filter((document) => {
+    if (document.clientId !== clientId) return false;
+    if (projectId && document.projectId) return document.projectId === projectId;
+    if (requestId && document.requestId) return document.requestId === requestId;
+    return true;
+  });
+
+  function changeClient(nextClientId: string) {
+    setClientId(nextClientId);
+    setProjectId("");
+    setRequestId("");
+    setDocumentId("");
+  }
+
   return (
     <form action={action} className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <select name="client_id" defaultValue={defaultClientId} className={inputClass}>
-          <option value="">عميل</option>
+      <div>
+        <label htmlFor="power-client" className="mb-2 block text-sm font-bold text-ink">
+          العميل
+        </label>
+        <select
+          id="power-client"
+          name="client_id"
+          value={clientId}
+          onChange={(event) => changeClient(event.target.value)}
+          required
+          className={inputClass}
+        >
+          <option value="">اختر العميل</option>
           {clients.map((client) => (
             <option key={client.id} value={client.id}>
               {client.name}
             </option>
           ))}
         </select>
-        <select name="project_id" defaultValue={defaultProjectId} className={inputClass}>
-          <option value="">مشروع</option>
-          {projects.map((project) => (
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label>
+          <span className="mb-2 block text-sm font-bold text-ink">المشروع المرتبط</span>
+          <select
+            name="project_id"
+            value={projectId}
+            onChange={(event) => {
+              setProjectId(event.target.value);
+              setDocumentId("");
+            }}
+            disabled={!clientId}
+            className={inputClass}
+          >
+            <option value="">بدون مشروع محدد</option>
+          {clientProjects.map((project) => (
             <option key={project.id} value={project.id}>
               {project.name}
             </option>
           ))}
-        </select>
-        <select name="request_id" className={inputClass}>
-          <option value="">طلب</option>
-          {requests.map((request) => (
+          </select>
+        </label>
+        <label>
+          <span className="mb-2 block text-sm font-bold text-ink">الطلب المرتبط</span>
+          <select
+            name="request_id"
+            value={requestId}
+            onChange={(event) => {
+              setRequestId(event.target.value);
+              setDocumentId("");
+            }}
+            disabled={!clientId}
+            className={inputClass}
+          >
+            <option value="">بدون طلب محدد</option>
+          {clientRequests.map((request) => (
             <option key={request.id} value={request.id}>
               {request.name}
             </option>
           ))}
-        </select>
+          </select>
+        </label>
       </div>
-      <input
-        name="power_number"
-        required
-        minLength={2}
-        placeholder="رقم الوكالة"
-        className={inputClass}
-      />
+      <label>
+        <span className="mb-2 block text-sm font-bold text-ink">رقم الوكالة</span>
+        <input name="power_number" required minLength={2} className={inputClass} />
+      </label>
       <div className="grid gap-3 sm:grid-cols-2">
-        <input type="date" name="issued_on" className={inputClass} />
-        <input type="date" name="expires_on" className={inputClass} />
+        <label>
+          <span className="mb-2 block text-sm font-bold text-ink">تاريخ الإصدار</span>
+          <input type="date" name="issued_on" className={inputClass} />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm font-bold text-ink">تاريخ الانتهاء</span>
+          <input type="date" name="expires_on" className={inputClass} />
+        </label>
       </div>
-      <select name="document_id" className={inputClass}>
-        <option value="">مستند الوكالة</option>
-        {documents.map((document) => (
-          <option key={document.id} value={document.id}>
-            {document.name}
-          </option>
-        ))}
-      </select>
-      <textarea name="notes" rows={3} placeholder="ملاحظات" className={textareaClass} />
+      <label>
+        <span className="mb-2 block text-sm font-bold text-ink">مستند الوكالة</span>
+        <select
+          name="document_id"
+          value={documentId}
+          onChange={(event) => setDocumentId(event.target.value)}
+          disabled={!clientId}
+          className={inputClass}
+        >
+          <option value="">بدون مستند مرتبط</option>
+          {clientDocuments.map((document) => (
+            <option key={document.id} value={document.id}>
+              {document.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="mb-2 block text-sm font-bold text-ink">ملاحظات</span>
+        <textarea name="notes" rows={3} className={textareaClass} />
+      </label>
       <ActionNotice state={state} />
       <SubmitButton label="حفظ الوكالة" icon={ScrollText} />
     </form>

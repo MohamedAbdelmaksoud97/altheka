@@ -170,7 +170,7 @@ export function AppShell({
           },
           {
             href: "/workspace/powers-of-attorney",
-            label: "التوكيلات",
+            label: "وكالات",
             icon: ScrollText,
           },
           {

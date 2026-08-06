@@ -8,7 +8,13 @@ import { getAccessContext } from "@/lib/auth/access";
 import { createClient } from "@/lib/supabase/server";
 
 type PowerFilter = "active" | "expiring" | "expired" | "project" | "request";
-type Option = { id: string; name: string };
+type LinkedOption = {
+  id: string;
+  name: string;
+  clientId: string;
+  projectId?: string | null;
+  requestId?: string | null;
+};
 
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -74,25 +80,26 @@ export default async function PowersOfAttorneyPage({
         clients(display_name),
         projects(name,project_number),
         service_requests(title,request_number),
-        documents(title,file_name)
+        documents(title)
       `,
       )
       .order("expires_on", { ascending: true, nullsFirst: false }),
     supabase.from("clients").select("id,display_name").order("display_name"),
     supabase
       .from("projects")
-      .select("id,name,project_number")
+      .select("id,name,project_number,client_id")
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(120),
     supabase
       .from("service_requests")
-      .select("id,title,request_number")
+      .select("id,title,request_number,client_id")
       .order("created_at", { ascending: false })
       .limit(120),
     supabase
       .from("documents")
-      .select("id,title,file_name")
+      .select("id,title,client_id,project_id,service_request_id")
+      .is("deleted_at", null)
       .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(120),
@@ -124,7 +131,7 @@ export default async function PowersOfAttorneyPage({
       requestName: request?.title,
       requestNumber: request?.request_number,
       clientName: client?.display_name ?? "عميل غير محدد",
-      documentName: document?.title ?? document?.file_name,
+      documentName: document?.title,
       expiringSoon,
       remainingDays,
     };
@@ -138,25 +145,51 @@ export default async function PowersOfAttorneyPage({
     return power.status === "active";
   });
 
-  const clients: Option[] = ((clientsResult.data ?? []) as any[]).map((client) => ({
+  const clients = ((clientsResult.data ?? []) as any[]).map((client) => ({
     id: client.id,
     name: client.display_name,
   }));
-  const projects: Option[] = ((projectsResult.data ?? []) as any[]).map((project) => ({
+  const projects: LinkedOption[] = ((projectsResult.data ?? []) as any[]).map((project) => ({
     id: project.id,
     name: `${project.name}${project.project_number ? ` - ${project.project_number}` : ""}`,
+    clientId: project.client_id,
   }));
-  const requests: Option[] = ((requestsResult.data ?? []) as any[]).map((request) => ({
+  const requests: LinkedOption[] = ((requestsResult.data ?? []) as any[])
+    .filter((request) => Boolean(request.client_id))
+    .map((request) => ({
     id: request.id,
     name: `${request.title}${request.request_number ? ` - ${request.request_number}` : ""}`,
+    clientId: request.client_id,
   }));
-  const documents: Option[] = ((documentsResult.data ?? []) as any[]).map((document) => ({
+  const projectClientById = new Map(projects.map((project) => [project.id, project.clientId]));
+  const requestClientById = new Map(requests.map((request) => [request.id, request.clientId]));
+  const documents: LinkedOption[] = ((documentsResult.data ?? []) as any[])
+    .map((document) => ({
     id: document.id,
-    name: document.title ?? document.file_name ?? "مستند",
-  }));
+    name: document.title ?? "مستند",
+    clientId:
+      document.client_id ??
+      projectClientById.get(document.project_id) ??
+      requestClientById.get(document.service_request_id) ??
+      "",
+    projectId: document.project_id,
+    requestId: document.service_request_id,
+  }))
+    .filter((document) => Boolean(document.clientId));
+  const powerLoadError =
+    powersResult.error ??
+    clientsResult.error ??
+    projectsResult.error ??
+    requestsResult.error ??
+    documentsResult.error;
 
   return (
     <AppShell access={access} eyebrow="الأرشفة القانونية" title="الوكالات">
+      {powerLoadError ? (
+        <p className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          تعذر تحميل بعض بيانات الوكالات. أعد تحميل الصفحة، وإذا استمرت المشكلة راجع صلاحيات الوكالات والمستندات.
+        </p>
+      ) : null}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <section>
           <nav className="grid gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-5">

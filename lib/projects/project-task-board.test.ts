@@ -7,6 +7,14 @@ const completionMigration = readFileSync(
   "supabase/migrations/20260806210159_complete_remaining_client_requirements.sql",
   "utf8",
 );
+const managerReviewMigration = readFileSync(
+  "supabase/migrations/20260806212558_allow_department_managers_to_review_all_operational_items.sql",
+  "utf8",
+);
+const selfApprovalMigration = readFileSync(
+  "supabase/migrations/20260806213640_allow_department_managers_to_self_approve_operational_work.sql",
+  "utf8",
+);
 
 describe("project task board", () => {
   it("exposes litigation tasks as a dedicated project tab with reviewable proposals", () => {
@@ -29,6 +37,21 @@ describe("project task board", () => {
     expect(projectPage).toContain("approval_due_at");
     expect(completionMigration).toContain("approval_target_business_days");
     expect(completionMigration).toContain("generate_due_soon_notifications");
+  });
+
+  it("lets either department manager review workflow work without a per-step approver assignment", () => {
+    expect(projectPage).toContain("canReviewOperationalItems");
+    expect(managerReviewMigration).toContain(
+      "private.has_any_role(array['litigation_manager', 'estates_manager'])",
+    );
+    expect(managerReviewMigration).not.toContain("is_approver");
+  });
+
+  it("allows department managers to review their own litigation submissions", () => {
+    expect(projectPage).toContain("submission.submitted_by !== access.userId ||");
+    expect(selfApprovalMigration).toContain(
+      "Only a department manager can review their own submission",
+    );
   });
 
   it("supports searching projects inside the unified client file", () => {

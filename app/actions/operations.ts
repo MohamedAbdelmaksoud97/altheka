@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { ActionState } from "@/app/actions/action-state";
 import { toSaudiIsoDateTime } from "@/lib/datetime";
@@ -26,6 +27,32 @@ function rpcMessage(error: { message: string } | null, fallback: string) {
     return "لا تملك الصلاحية اللازمة لتنفيذ هذه العملية.";
   }
   return fallback;
+}
+
+function powerOfAttorneyRpcMessage(error: { message: string } | null) {
+  const message = error?.message ?? "";
+  if (message.includes("POA_PERMISSION_DENIED")) {
+    return "لا تملك صلاحية إنشاء الوكالات.";
+  }
+  if (message.includes("POA_CLIENT_REQUIRED") || message.includes("POA_CLIENT_INVALID")) {
+    return "اختر عميلًا صحيحًا قبل حفظ الوكالة.";
+  }
+  if (message.includes("POA_PROJECT_CLIENT_MISMATCH")) {
+    return "المشروع المحدد لا يتبع العميل المختار.";
+  }
+  if (message.includes("POA_REQUEST_CLIENT_MISMATCH")) {
+    return "الطلب المحدد لا يتبع العميل المختار.";
+  }
+  if (message.includes("POA_DOCUMENT_CLIENT_MISMATCH")) {
+    return "المستند المحدد غير مرتبط بهذا العميل أو أحد مشاريعه أو طلباته.";
+  }
+  if (message.includes("POA_EXPIRY_BEFORE_ISSUE")) {
+    return "تاريخ انتهاء الوكالة يجب أن يكون بعد تاريخ إصدارها.";
+  }
+  if (message.includes("POA_NUMBER_REQUIRED")) {
+    return "أدخل رقم الوكالة.";
+  }
+  return "تعذر إنشاء الوكالة. راجع البيانات المرتبطة ثم حاول مرة أخرى.";
 }
 
 function refreshOperations(projectId?: string | null, requestId?: string | null) {
@@ -478,7 +505,16 @@ export async function createAppointmentAction(
         .getAll("participant_user_ids")
         .filter((value): value is string => typeof value === "string"),
     });
-  if (!parsed.success) return errorState("راجع بيانات الموعد.");
+  if (
+    !parsed.success ||
+    !(
+      parsed.data.clientId ||
+      parsed.data.requestId ||
+      parsed.data.projectId
+    )
+  ) {
+    return errorState("اختر العميل أو الطلب أو المشروع المرتبط بالموعد.");
+  }
   const startsAt = toIsoDateTime(parsed.data.startsAt);
   const endsAt = toIsoDateTime(parsed.data.endsAt);
   if (!startsAt || !endsAt) return errorState("راجع تاريخ ووقت الموعد.");
@@ -498,7 +534,10 @@ export async function createAppointmentAction(
   if (error) return errorState(rpcMessage(error, "تعذر إنشاء الموعد."));
 
   refreshOperations(parsed.data.projectId || null, parsed.data.requestId || null);
-  return successState("تم إنشاء الموعد وجدولة التذكيرات.");
+  const appointmentDate = parsed.data.startsAt.slice(0, 10);
+  redirect(
+    `/workspace/calendar?view=week&filter=all&date=${appointmentDate}&created=1`,
+  );
 }
 
 export async function createPowerOfAttorneyAction(
@@ -507,7 +546,7 @@ export async function createPowerOfAttorneyAction(
 ): Promise<ActionState> {
   const parsed = z
     .object({
-      clientId: uuidOrEmpty,
+      clientId: z.uuid(),
       requestId: uuidOrEmpty,
       projectId: uuidOrEmpty,
       documentId: uuidOrEmpty,
@@ -526,7 +565,19 @@ export async function createPowerOfAttorneyAction(
       expiresOn: formData.get("expires_on") || "",
       notes: formData.get("notes") || undefined,
     });
-  if (!parsed.success) return errorState("راجع بيانات الوكالة.");
+  if (
+    !parsed.success ||
+    !parsed.data.clientId
+  ) {
+    return errorState("اختر العميل المرتبط بالوكالة.");
+  }
+  if (
+    parsed.data.issuedOn &&
+    parsed.data.expiresOn &&
+    parsed.data.expiresOn < parsed.data.issuedOn
+  ) {
+    return errorState("تاريخ انتهاء الوكالة يجب أن يكون بعد تاريخ إصدارها.");
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("create_power_of_attorney", {
@@ -539,9 +590,10 @@ export async function createPowerOfAttorneyAction(
     p_expires_on: parsed.data.expiresOn || null,
     p_notes: parsed.data.notes ?? null,
   });
-  if (error) return errorState(rpcMessage(error, "تعذر إنشاء الوكالة."));
+  if (error) return errorState(powerOfAttorneyRpcMessage(error));
 
   refreshOperations(parsed.data.projectId || null, parsed.data.requestId || null);
+  refresh();
   return successState("تم حفظ الوكالة وجدولة تنبيه الانتهاء عند وجود تاريخ انتهاء.");
 }
 
