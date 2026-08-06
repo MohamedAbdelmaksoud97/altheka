@@ -17,7 +17,7 @@ function relationOne<T>(value: T | T[] | null | undefined): T | null {
 
 function formatDate(value?: string | null) {
   if (!value) return "غير محدد";
-  return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" }).format(
+  return new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh", dateStyle: "medium" }).format(
     new Date(value),
   );
 }

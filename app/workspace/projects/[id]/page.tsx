@@ -24,10 +24,20 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import {
+  AttentionNoticeReviewForm,
   EstateApprovalRequestForm,
   EstateApprovalResponseForm,
   ProposedTaskForm,
   ProposedTaskReviewForm,
+  ProjectHealthForm,
+  ProjectTaskStepResponseForm,
+  ProjectTaskStepReviewForm,
+  ProjectTaskThreadCloseForm,
+  ProjectTaskThreadForm,
+  ProjectTaskStepExtensionForm,
+  ProjectTaskStepExtensionReviewForm,
+  ProjectTaskStepAttentionReviewForm,
+  WorkflowExtensionReviewForm,
   WorkflowActionUpdateForm,
 } from "@/components/operations/forms";
 import {
@@ -97,6 +107,7 @@ type ProjectAssigneeRow = {
 type ProjectTeamMemberRow = {
   user_id: string;
   team_role: "leader" | "member" | "observer";
+  work_type: "inventory" | "study" | "pleading" | "follow_up" | "drafting" | "other" | null;
   joined_at: string;
   left_at: string | null;
   profiles: Profile | Profile[] | null;
@@ -119,9 +130,10 @@ type AttentionNoticeRow = {
   target_user_id: string;
   issued_by: string;
   reason: string;
-  status: "sent" | "acknowledged";
+  status: "pending" | "active" | "rejected" | "acknowledged";
   acknowledged_at: string | null;
   response_text: string | null;
+  rejection_reason: string | null;
   created_at: string;
   target: Profile | Profile[] | null;
   issuer: Profile | Profile[] | null;
@@ -151,6 +163,15 @@ type ActionRow = {
   status: string;
   due_at: string | null;
   planned_duration: string | null;
+  started_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  approval_started_at: string | null;
+  approval_due_at: string | null;
+  approval_reviewed_at: string | null;
+  approval_target_business_days: number;
+  requires_attachment: boolean;
+  requires_manager_approval: boolean;
   workflow_action_templates:
     | {
         code: string;
@@ -206,6 +227,7 @@ type LitigationSubmissionRow = {
 };
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
+  timeZone: "Asia/Riyadh",
   dateStyle: "medium",
   timeStyle: "short",
 });
@@ -287,7 +309,7 @@ export default async function ProjectPage({
   const { data: project } = await supabase
     .from("projects")
     .select(
-      "id, organization_id, client_id, service_request_id, name, project_number, project_type, status, client_stage_label, project_manager_id, primary_assignee_id, parent_project_id, department_id, litigation_case_category_id, needs_category_review, created_at, updated_at, clients(display_name)",
+      "id, organization_id, client_id, service_request_id, name, project_number, project_type, status, health_status, external_hold_reason, external_hold_started_at, client_stage_label, project_manager_id, primary_assignee_id, parent_project_id, department_id, litigation_case_category_id, needs_category_review, created_at, updated_at, clients(display_name)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -313,6 +335,9 @@ export default async function ProjectPage({
     estateLitigationProjectsResult,
     staffDirectoryResult,
     litigationCategoriesResult,
+    taskThreadsResult,
+    taskStepExtensionsResult,
+    taskStepAttentionResult,
   ] = await Promise.all([
     supabase
       .from("project_members")
@@ -339,7 +364,7 @@ export default async function ProjectPage({
     supabase
       .from("documents")
       .select(
-        "id, title, document_type, visibility, client_visibility_status, current_version_number, created_at, document_versions(id, version_number, file_name, byte_size)",
+        "id, title, document_type, visibility, client_visibility_status, workflow_action_instance_id, current_version_number, created_at, document_versions(id, version_number, file_name, byte_size)",
       )
       .eq("project_id", id)
       .is("deleted_at", null)
@@ -364,7 +389,7 @@ export default async function ProjectPage({
     supabase
       .from("project_teams")
       .select(
-        "id, code, name, leader_id, stage_instance_id, status, starts_at, ends_at, project_team_members(user_id, team_role, joined_at, left_at, profiles!project_team_members_user_id_fkey(id, full_name))",
+        "id, code, name, leader_id, stage_instance_id, status, starts_at, ends_at, project_team_members(user_id, team_role, work_type, joined_at, left_at, profiles!project_team_members_user_id_fkey(id, full_name))",
       )
       .eq("project_id", id)
       .order("created_at"),
@@ -385,7 +410,7 @@ export default async function ProjectPage({
     supabase
       .from("project_attention_notices")
       .select(
-        "id, workflow_action_instance_id, litigation_action_id, target_user_id, issued_by, reason, status, acknowledged_at, response_text, created_at, target:profiles!project_attention_notices_target_user_id_fkey(id, full_name), issuer:profiles!project_attention_notices_issued_by_fkey(id, full_name)",
+        "id, workflow_action_instance_id, litigation_action_id, target_user_id, issued_by, reason, status, acknowledged_at, response_text, rejection_reason, reviewed_by, reviewed_at, created_at, target:profiles!project_attention_notices_target_user_id_fkey(id, full_name), issuer:profiles!project_attention_notices_issued_by_fkey(id, full_name)",
       )
       .eq("project_id", id)
       .order("created_at", { ascending: false }),
@@ -464,6 +489,13 @@ export default async function ProjectPage({
           .eq("is_active", true)
           .order("sort_order")
       : Promise.resolve({ data: [] }),
+    supabase
+      .from("project_task_threads")
+      .select("id,title,status,created_at,closed_at,project_task_steps(id,sequence_number,title,assigned_to,due_at,status,created_at,response_text,responded_at,proposed_next_title,proposed_next_due_at,review_notes,assignee:profiles!project_task_steps_assigned_to_fkey(full_name))")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
+    supabase.from("project_task_step_extension_requests").select("id,task_step_id,requested_due_at,reason,status,review_notes,created_at,project_task_steps!inner(project_task_threads!inner(project_id))").eq("project_task_steps.project_task_threads.project_id",id).order("created_at",{ascending:false}),
+    supabase.from("project_task_step_attention_notices").select("id,task_step_id,reason,status,rejection_reason,created_at,project_task_steps!inner(project_task_threads!inner(project_id))").eq("project_task_steps.project_task_threads.project_id",id).order("created_at",{ascending:false}),
   ]);
 
   const members = (membersResult.data ?? []) as unknown as ProjectMemberRow[];
@@ -491,6 +523,27 @@ export default async function ProjectPage({
   );
   const attentionNotices =
     (attentionNoticesResult.data ?? []) as unknown as AttentionNoticeRow[];
+  const canReviewAttentionNotices = access.permissions.includes("attention_notices.review");
+  const taskThreads = (taskThreadsResult.data ?? []) as unknown as {
+    id:string; title:string; status:string; created_at:string; closed_at:string|null;
+    project_task_steps:{id:string;sequence_number:number;title:string;assigned_to:string;due_at:string;status:string;created_at:string;response_text:string|null;responded_at:string|null;proposed_next_title:string|null;proposed_next_due_at:string|null;review_notes:string|null;assignee:{full_name:string}|{full_name:string}[]|null}[];
+  }[];
+  const taskThreadSteps = taskThreads.flatMap((thread) =>
+    thread.project_task_steps.map((step) => ({ ...step, threadTitle: thread.title })),
+  );
+  const sevenDaysAgo = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
+  const recentlyCreatedTaskSteps = taskThreadSteps.filter(
+    (step) => new Date(step.created_at).getTime() >= sevenDaysAgo,
+  );
+  const currentTaskSteps = taskThreadSteps.filter((step) =>
+    ["open", "returned", "awaiting_review"].includes(step.status),
+  );
+  const upcomingTaskSteps = taskThreadSteps.filter(
+    (step) => Boolean(step.proposed_next_title) && step.status === "awaiting_review",
+  );
+  const canManageTaskThreads = access.permissions.includes("tasks.manage_threads");
+  const taskStepExtensions=(taskStepExtensionsResult.data??[]) as {id:string;task_step_id:string;requested_due_at:string;reason:string;status:string;review_notes:string|null}[];
+  const taskStepAttention=(taskStepAttentionResult.data??[]) as {id:string;task_step_id:string;reason:string;status:string;rejection_reason:string|null}[];
   const estateBankAccounts = (estateBankAccountsResult.data ?? []) as {
     id: string;
     estate_party_id: string;
@@ -655,7 +708,7 @@ export default async function ProjectPage({
       const { data: actionRows } = await supabase
         .from("workflow_action_instances")
         .select(
-          "id, workflow_stage_instance_id, status, due_at, planned_duration, workflow_action_templates(code, name, position, priority, visibility, needs_operational_confirmation)",
+          "id, workflow_stage_instance_id, status, due_at, planned_duration, started_at, submitted_at, approved_at, approval_started_at, approval_due_at, approval_reviewed_at, approval_target_business_days, requires_attachment, requires_manager_approval, workflow_action_templates(code, name, position, priority, visibility, needs_operational_confirmation)",
         )
         .in("workflow_stage_instance_id", stageIds);
       actions = (actionRows ?? []) as unknown as ActionRow[];
@@ -743,9 +796,8 @@ export default async function ProjectPage({
     workflowActionIds.length
       ? supabase
           .from("workflow_action_participants")
-          .select("workflow_action_instance_id, user_id")
+          .select("workflow_action_instance_id, user_id, participant_type")
           .in("workflow_action_instance_id", workflowActionIds)
-          .eq("participant_type", "executor")
           .is("unassigned_at", null)
       : Promise.resolve({ data: [] }),
   ]);
@@ -763,7 +815,12 @@ export default async function ProjectPage({
     litigationAssigneesByAction.set(row.litigation_action_id, assignees);
   }
   const workflowAssigneesByAction = new Map<string, string[]>();
+  const workflowParticipantsByAction = new Map<string, { userId: string; participantType: string }[]>();
   for (const row of workflowActionParticipantRows ?? []) {
+    const participants = workflowParticipantsByAction.get(row.workflow_action_instance_id) ?? [];
+    participants.push({ userId: row.user_id, participantType: row.participant_type });
+    workflowParticipantsByAction.set(row.workflow_action_instance_id, participants);
+    if (row.participant_type !== "executor") continue;
     const assignees =
       workflowAssigneesByAction.get(row.workflow_action_instance_id) ?? [];
     assignees.push(row.user_id);
@@ -1042,6 +1099,7 @@ export default async function ProjectPage({
         id: member.user_id,
         name: relationOne(member.profiles)?.full_name ?? "موظف",
         role: member.team_role,
+        workType: member.work_type,
       })),
   }));
   const activeWorkflowStageCode = activeWorkflowStage
@@ -1093,8 +1151,8 @@ export default async function ProjectPage({
 
   const tabs = [
     { code: "overview", label: "نظرة عامة", show: true },
-    { code: "setup", label: "التأسيس والمسار", show: true },
-    { code: "tasks", label: "المهام", show: isLitigation },
+    { code: "setup", label: "خارطة السير", show: true },
+    { code: "tasks", label: "المهام", show: true },
     { code: "litigation", label: "المرافعة والجلسات", show: isLitigation },
     { code: "estate", label: "التركة والأصول", show: isEstate },
     {
@@ -1222,6 +1280,17 @@ export default async function ProjectPage({
             ))}
           </section>
 
+          <section className={`border-y px-5 py-5 ${project.health_status === "red" ? "border-red-200 bg-red-50" : project.health_status === "yellow" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+            <div className="flex flex-wrap items-start justify-between gap-5">
+              <div>
+                <p className="text-xs font-bold text-muted">حالة تنفيذ المشروع</p>
+                <h2 className="mt-1 text-lg font-bold">{project.health_status === "red" ? "النطاق الأحمر: يوجد تأخير داخلي" : project.health_status === "yellow" ? "النطاق الأصفر: توقف بسبب جهة خارجية" : "النطاق الأخضر: يسير حسب الخطة"}</h2>
+                {project.external_hold_reason ? <p className="mt-2 text-sm text-muted">{project.external_hold_reason}</p> : null}
+              </div>
+              {canReviewAttentionNotices ? <div className="w-full max-w-md"><ProjectHealthForm projectId={project.id} currentStatus={project.health_status} /></div> : null}
+            </div>
+          </section>
+
           {isLitigation ? (
             <section className="border-y border-line bg-surface px-5 py-5">
               <div>
@@ -1296,16 +1365,31 @@ export default async function ProjectPage({
                               {notice.response_text}
                             </p>
                           ) : null}
+                          {notice.rejection_reason ? (
+                            <p className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800">
+                              سبب عدم الاعتماد: {notice.rejection_reason}
+                            </p>
+                          ) : null}
                         </div>
                         <span className="rounded-md border border-line px-3 py-1 text-xs font-bold">
                           {notice.status === "acknowledged"
                             ? "تم الاطلاع"
-                            : "بانتظار الاطلاع"}
+                            : notice.status === "active"
+                              ? "قائم"
+                              : notice.status === "rejected"
+                                ? "مرفوض"
+                                : "معلّق للاعتماد"}
                         </span>
                       </div>
                       {notice.target_user_id === access.userId &&
-                      notice.status === "sent" ? (
+                      notice.status === "active" ? (
                         <AttentionNoticeAcknowledgeForm
+                          projectId={project.id}
+                          noticeId={notice.id}
+                        />
+                      ) : null}
+                      {notice.status === "pending" && canReviewAttentionNotices ? (
+                        <AttentionNoticeReviewForm
                           projectId={project.id}
                           noticeId={notice.id}
                         />
@@ -1376,7 +1460,7 @@ export default async function ProjectPage({
                             : stage.status === "completed"
                               ? "مكتملة"
                               : stage.status === "skipped"
-                                ? "لم يتطلبها المسار"
+                                ? "لم تتطلبها خارطة السير"
                                 : "لاحقة"}
                         </span>
                       </div>
@@ -1390,7 +1474,7 @@ export default async function ProjectPage({
               </div>
               {showLitigationRouting ? (
                 <div className="border-t border-line bg-subtle px-5 py-5">
-                  <h3 className="mb-4 font-bold">قرار المسار التالي</h3>
+                  <h3 className="mb-4 font-bold">قرار المرحلة التالية في خارطة السير</h3>
                   <LitigationStageRoutingForm
                     projectId={project.id}
                     options={litigationRoutingOptions}
@@ -1434,7 +1518,7 @@ export default async function ProjectPage({
         <div className="mt-6 space-y-7">
           {!workflow ? (
             <section className="border-y border-amber-200 bg-amber-50 px-5 py-6">
-              <h2 className="font-bold">ابدأ خارطة السير لعرض مهام التهنئة والتأسيس</h2>
+              <h2 className="font-bold">ابدأ خارطة السير لعرض مهام التهنئة وبقية المراحل</h2>
               <p className="mt-2 text-sm text-amber-800">
                 القالب المنشور يحفظ المهام والمدد والمسؤول والمتابع والمعتمد.
               </p>
@@ -1482,7 +1566,7 @@ export default async function ProjectPage({
                           : stage.status === "completed"
                             ? "مكتملة"
                             : stage.status === "skipped"
-                              ? "لم يتطلبها المسار"
+                              ? "لم تتطلبها خارطة السير"
                               : "لاحقة"}
                       </span>
                     </div>
@@ -1495,6 +1579,21 @@ export default async function ProjectPage({
                         const latestProgress = actionUpdates.find(
                           (update) => update.progress_percent !== null,
                         )?.progress_percent;
+                        const pendingExtensions = actionUpdates.filter(
+                          (update) =>
+                            update.update_type === "extension_request" &&
+                            update.status === "pending",
+                        );
+                        const actionDocuments = (documentsResult.data ?? []).filter(
+                          (document) => document.workflow_action_instance_id === action.id,
+                        );
+                        const actionParticipants = workflowParticipantsByAction.get(action.id) ?? [];
+                        const canExecuteAction = canOperateWorkflow && actionParticipants.some(
+                          (participant) => participant.userId === access.userId && ["executor", "responsible"].includes(participant.participantType),
+                        );
+                        const canApproveAction = canOperateWorkflow && actionParticipants.some(
+                          (participant) => participant.userId === access.userId && participant.participantType === "approver",
+                        );
                         return (
                           <article
                             key={action.id}
@@ -1517,6 +1616,28 @@ export default async function ProjectPage({
                                   ? `الاستحقاق ${dateTime.format(new Date(action.due_at))}`
                                   : "يبدأ موعده عند جاهزية الإجراء"}
                               </p>
+                              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                                <span>بدأت: {action.started_at ? dateTime.format(new Date(action.started_at)) : "لم تبدأ"}</span>
+                                <span>تنتهي: {action.due_at ? dateTime.format(new Date(action.due_at)) : "يحسب الموعد عند بدء التنفيذ"}</span>
+                                <span>المسؤول: {(workflowAssigneesByAction.get(action.id) ?? []).map((userId) => assigneeDirectory.get(userId)).filter(Boolean).join("، ") || "غير مسند"}</span>
+                              </div>
+                              {action.approval_started_at ? (
+                                <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-6 ${action.status === "awaiting_approval" && action.approval_due_at && new Date(action.approval_due_at).getTime() < new Date().getTime() ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                                  <p className="font-bold">مدة اعتماد مدير الإدارة: {action.approval_target_business_days} يوم عمل</p>
+                                  <p>بدأ الاعتماد: {dateTime.format(new Date(action.approval_started_at))}</p>
+                                  <p>ينتهي الاعتماد: {action.approval_due_at ? dateTime.format(new Date(action.approval_due_at)) : "غير محدد"}</p>
+                                  {action.approval_reviewed_at ? <p>تمت المراجعة: {dateTime.format(new Date(action.approval_reviewed_at))}</p> : null}
+                                </div>
+                              ) : null}
+                              {actionDocuments.length ? (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {actionDocuments.map((document) => (
+                                    <Link key={document.id} href={`/documents/${document.id}/download`} className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1 text-xs font-bold text-brand">
+                                      <FileText className="size-3.5" />{document.title}
+                                    </Link>
+                                  ))}
+                                </div>
+                              ) : action.requires_attachment ? <p className="mt-2 text-xs font-bold text-amber-800">يلزم إرفاق مستند قبل الإرسال.</p> : null}
                               <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
                                 <p>
                                   نسبة الإنجاز:{" "}
@@ -1552,7 +1673,16 @@ export default async function ProjectPage({
                                   projectId={project.id}
                                   actionId={action.id}
                                   status={action.status}
+                                  requiresApproval={action.requires_manager_approval}
+                                  canExecute={canExecuteAction}
+                                  canApprove={canApproveAction}
                                 />
+                              ) : null}
+                              {canUpload && !["approved", "completed", "cancelled"].includes(action.status) ? (
+                                <details className="rounded-md border border-line bg-white p-3">
+                                  <summary className="cursor-pointer text-xs font-bold text-brand">إرفاق مستند للخطوة</summary>
+                                  <div className="mt-3"><ProjectDocumentForm projectId={project.id} workflowActionId={action.id} /></div>
+                                </details>
                               ) : null}
                               {!["approved", "completed", "cancelled"].includes(
                                 action.status,
@@ -1566,6 +1696,25 @@ export default async function ProjectPage({
                                       projectId={project.id}
                                       actionId={action.id}
                                     />
+                                  </div>
+                                </details>
+                              ) : null}
+                              {pendingExtensions.length &&
+                              access.permissions.includes("tasks.review_extensions") ? (
+                                <details className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                                  <summary className="cursor-pointer text-xs font-bold text-amber-900">
+                                    طلبات تمديد بانتظار القرار ({pendingExtensions.length})
+                                  </summary>
+                                  <div className="mt-3 space-y-3">
+                                    {pendingExtensions.map((extension) => (
+                                      <div key={extension.id} className="border-t border-amber-200 pt-3 text-xs leading-6 text-amber-950">
+                                        <p>الموعد المطلوب: {extension.requested_due_at ? dateTime.format(new Date(extension.requested_due_at)) : "غير محدد"}</p>
+                                        {extension.notes ? <p className="mt-1">{extension.notes}</p> : null}
+                                        <div className="mt-3">
+                                          <WorkflowExtensionReviewForm projectId={project.id} updateId={extension.id} />
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 </details>
                               ) : null}
@@ -1671,8 +1820,75 @@ export default async function ProjectPage({
         </div>
       ) : null}
 
-      {view === "tasks" && isLitigation ? (
+      {view === "tasks" ? (
         <div className="mt-6 space-y-7">
+          <section className="grid gap-4 lg:grid-cols-3">
+            {[
+              {
+                title: "مهام أُنشئت خلال آخر 7 أيام",
+                items: recentlyCreatedTaskSteps,
+                empty: "لم تُنشأ مهام خلال آخر 7 أيام.",
+              },
+              {
+                title: "المهام الحالية",
+                items: currentTaskSteps,
+                empty: "لا توجد مهام حالية قيد التنفيذ أو المراجعة.",
+              },
+              {
+                title: "المهام القادمة",
+                items: upcomingTaskSteps,
+                empty: "لا توجد مهام تالية مقترحة حاليًا.",
+              },
+            ].map((group) => (
+              <article key={group.title} className="rounded-md border border-line bg-surface">
+                <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-4">
+                  <h2 className="text-sm font-bold">{group.title}</h2>
+                  <span className="rounded-md bg-[#eef1ef] px-2.5 py-1 text-xs font-bold tabular-nums">{group.items.length}</span>
+                </div>
+                <div className="divide-y divide-line">
+                  {group.items.slice(0, 5).map((step) => {
+                    const assignee = relationOne(step.assignee);
+                    return (
+                      <div key={`${group.title}-${step.id}`} className="px-4 py-3">
+                        <p className="text-sm font-bold">{group.title === "المهام القادمة" ? step.proposed_next_title : step.title}</p>
+                        <p className="mt-1 text-xs text-muted">{step.threadTitle} · {assignee?.full_name ?? "غير مسند"}</p>
+                        <p className="mt-1 text-xs text-muted">{group.title === "المهام القادمة" && step.proposed_next_due_at ? dateTime.format(new Date(step.proposed_next_due_at)) : dateTime.format(new Date(step.due_at))}</p>
+                      </div>
+                    );
+                  })}
+                  {!group.items.length ? <p className="px-4 py-6 text-sm text-muted">{group.empty}</p> : null}
+                </div>
+              </article>
+            ))}
+          </section>
+
+          {canManageTaskThreads ? (
+            <section className="rounded-md border border-line bg-surface p-5">
+              <div className="mb-4"><h2 className="font-bold">إضافة صندوق مهمة</h2><p className="mt-1 text-sm text-muted">كل صندوق يحتفظ بتسلسل المهمة والرد والمهمة التالية حتى إغلاقه.</p></div>
+              <ProjectTaskThreadForm projectId={project.id} members={memberDirectory.map((member)=>({id:member.id,name:member.name}))}/>
+            </section>
+          ) : null}
+
+          <section>
+            <div className="mb-4 flex items-center justify-between"><h2 className="font-bold">صناديق العمل</h2><span className="text-xs text-muted">{taskThreads.filter((thread)=>thread.status==="open").length} مفتوح</span></div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {taskThreads.map((thread)=>{
+                const steps=[...thread.project_task_steps].sort((a,b)=>a.sequence_number-b.sequence_number);
+                const currentStep=[...steps].reverse().find((step)=>step.status!=="completed");
+                const allCompleted=steps.length>0&&steps.every((step)=>step.status==="completed");
+                return <article key={thread.id} className={`rounded-md border bg-surface p-5 ${thread.status==="closed"?"border-line opacity-80":"border-brand/30"}`}>
+                  <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold text-brand">ملف المهمة</p><h3 className="mt-1 font-bold">{thread.title}</h3></div><span className="rounded-md border border-line px-2 py-1 text-xs font-bold">{thread.status==="closed"?"مؤرشف":"مفتوح"}</span></div>
+                  <ol className="mt-4 space-y-4 border-r border-line pr-4">{steps.map((step)=>{const assignee=relationOne(step.assignee);return <li key={step.id}><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-muted">المهمة {step.sequence_number}</p><p className="mt-1 font-bold">{step.title}</p><p className="mt-1 text-xs text-muted">{assignee?.full_name??"المكلف"} · {dateTime.format(new Date(step.due_at))}</p></div><span className="text-xs font-bold text-brand">{step.status==="open"?"قيد التنفيذ":step.status==="awaiting_review"?"بانتظار المراجعة":step.status==="returned"?"معادة للتعديل":"مكتملة"}</span></div>{step.response_text?<div className="mt-3 rounded-md bg-[#f7f9f8] p-3 text-sm"><p className="text-xs font-bold text-brand">رد المحامي</p><p className="mt-1 leading-7">{step.response_text}</p>{step.proposed_next_title?<p className="mt-2 border-t border-line pt-2"><span className="font-bold">المقترح التالي:</span> {step.proposed_next_title}</p>:null}</div>:null}{step.review_notes?<p className="mt-2 text-xs text-muted">ملاحظة المراجعة: {step.review_notes}</p>:null}{thread.status==="open"&&step.id===currentStep?.id&&step.assigned_to===access.userId&&["open","returned"].includes(step.status)?<ProjectTaskStepResponseForm projectId={project.id} stepId={step.id}/>:null}{thread.status==="open"&&step.status==="awaiting_review"&&canManageTaskThreads?<ProjectTaskStepReviewForm projectId={project.id} stepId={step.id} proposedTitle={step.proposed_next_title??""} proposedDueAt={step.proposed_next_due_at??""}/>:null}</li>})}</ol>
+                  {thread.status==="open"&&currentStep?.assigned_to===access.userId&&["open","returned"].includes(currentStep.status)&&!taskStepExtensions.some((item)=>item.task_step_id===currentStep.id&&item.status==="pending")?<details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-sm font-bold text-brand">طلب تمديد</summary><ProjectTaskStepExtensionForm projectId={project.id} stepId={currentStep.id}/></details>:null}
+                  {currentStep ? taskStepExtensions.filter((item)=>item.task_step_id===currentStep.id).map((extension)=><div key={extension.id} className="mt-3 rounded-md border border-line p-3 text-sm"><p className="font-bold">طلب تمديد حتى {dateTime.format(new Date(extension.requested_due_at))}</p><p className="mt-1 text-muted">{extension.reason}</p><p className="mt-1 text-xs font-bold text-brand">{extension.status==="pending"?"بانتظار الاعتماد":extension.status==="approved"?"معتمد":"مرفوض"}</p>{extension.status==="pending"&&canManageTaskThreads?<ProjectTaskStepExtensionReviewForm projectId={project.id} extensionId={extension.id}/>:null}</div>):null}
+                  {currentStep ? taskStepAttention.filter((item)=>item.task_step_id===currentStep.id).map((notice)=><div key={notice.id} className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm"><p className="font-bold text-red-800">لفت نظر {notice.status==="pending"?"معلّق":notice.status==="active"?"قائم":"مرفوض"}</p><p className="mt-1 text-muted">{notice.reason}</p>{notice.rejection_reason?<p className="mt-1 text-red-700">سبب الرفض: {notice.rejection_reason}</p>:null}{notice.status==="pending"&&canReviewAttentionNotices?<ProjectTaskStepAttentionReviewForm projectId={project.id} noticeId={notice.id}/>:null}</div>):null}
+                  {thread.status==="open"&&allCompleted&&canManageTaskThreads?<ProjectTaskThreadCloseForm projectId={project.id} threadId={thread.id}/>:null}
+                </article>;
+              })}
+              {!taskThreads.length?<p className="rounded-md border border-dashed border-line bg-surface px-5 py-10 text-center text-sm text-muted">لم تنشأ صناديق مهام بعد.</p>:null}
+            </div>
+          </section>
+
           <section className="rounded-md border border-line bg-surface p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-start gap-3">

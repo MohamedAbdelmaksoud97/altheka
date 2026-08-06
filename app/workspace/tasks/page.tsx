@@ -15,6 +15,7 @@ import { AppShell } from "@/components/app-shell";
 import {
   ProposedTaskForm,
   ProposedTaskReviewForm,
+  WorkflowExtensionReviewForm,
   WorkflowActionUpdateForm,
 } from "@/components/operations/forms";
 import { getAccessContext } from "@/lib/auth/access";
@@ -39,6 +40,7 @@ function relationOne<T>(value: T | T[] | null | undefined): T | null {
 function formatDate(value?: string | null) {
   if (!value) return "دون موعد";
   return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Asia/Riyadh",
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
@@ -58,6 +60,8 @@ function statusLabel(status?: string | null) {
     pending: "بانتظار الاعتماد",
     approved: "معتمد",
     rejected: "مرفوض",
+    open: "مفتوحة",
+    awaiting_review: "بانتظار المراجعة",
   };
   return labels[status ?? ""] ?? status ?? "غير محدد";
 }
@@ -93,12 +97,13 @@ export default async function TasksPage({
     proposedResult,
     stagesResult,
     projectsResult,
+    taskStepsResult,
   ] = await Promise.all([
     supabase
       .from("workflow_action_instances")
       .select(
         `
-        id,status,due_at,updated_at,
+        id,status,due_at,approval_due_at,approval_started_at,approval_reviewed_at,updated_at,
         workflow_action_templates(name,code,priority),
         workflow_stage_instances(
           id,
@@ -109,7 +114,7 @@ export default async function TasksPage({
           )
         ),
         workflow_action_participants(participant_type,user_id,unassigned_at,profiles(full_name)),
-        workflow_action_updates(update_type,progress_percent,notes,requested_due_at,status,created_at)
+        workflow_action_updates(id,update_type,progress_percent,notes,requested_due_at,status,created_at)
       `,
       )
       .order("due_at", { ascending: true, nullsFirst: false })
@@ -147,6 +152,11 @@ export default async function TasksPage({
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(80),
+    supabase
+      .from("project_task_steps")
+      .select("id,title,status,due_at,assigned_to,responded_at,reviewed_at,assignee:profiles!project_task_steps_assigned_to_fkey(full_name),project_task_threads(project_id,title,projects(id,name,project_number,clients(display_name)))")
+      .order("due_at", { ascending: true })
+      .limit(120),
   ]);
 
   const workflowTasks = ((workflowResult.data ?? []) as any[]).map((task) => {
@@ -162,6 +172,10 @@ export default async function TasksPage({
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0];
+    const pendingExtensions = ((task.workflow_action_updates ?? []) as any[]).filter(
+      (update) =>
+        update.update_type === "extension_request" && update.status === "pending",
+    );
     const mine = participants.some(
       (participant) => participant.user_id === access.userId,
     );
@@ -181,12 +195,14 @@ export default async function TasksPage({
       clientName: client?.display_name ?? "عميل غير محدد",
       stageName:
         relationOne(stage?.workflow_stage_templates)?.name ?? "مرحلة غير محددة",
-      dueAt: task.due_at as string | null,
+      dueAt: (task.status === "awaiting_approval" ? task.approval_due_at : task.due_at) as string | null,
       status: task.status as string,
       assignees: participants
+        .filter((participant) => task.status !== "awaiting_approval" || participant.participant_type === "approver")
         .map((participant) => relationOne(participant.profiles)?.full_name)
         .filter(Boolean),
       latestUpdate,
+      pendingExtensions,
       progress:
         latestUpdate?.progress_percent ??
         [...((task.workflow_action_updates ?? []) as any[])]
@@ -253,7 +269,30 @@ export default async function TasksPage({
     };
   });
 
-  const allTasks = [...workflowTasks, ...litigationTasks, ...proposedTasks];
+  const threadTasks = ((taskStepsResult.data ?? []) as any[]).map((task) => {
+    const thread = relationOne(task.project_task_threads);
+    const project = relationOne(thread?.projects);
+    const client = relationOne(project?.clients);
+    const assignee = relationOne(task.assignee);
+    return {
+      id: task.id as string,
+      kind: "thread" as const,
+      title: task.title as string,
+      projectId: project?.id as string | undefined,
+      projectName: project?.name ?? "مشروع غير محدد",
+      projectNumber: project?.project_number,
+      clientName: client?.display_name ?? "عميل غير محدد",
+      stageName: thread?.title ?? "صندوق مهمة",
+      dueAt: task.due_at as string,
+      status: task.status as string,
+      assignees: [assignee?.full_name ?? "غير محدد"],
+      mine: task.assigned_to === access.userId,
+      approver: task.status === "awaiting_review" && access.permissions.includes("tasks.manage_threads"),
+      completed: task.status === "completed",
+    };
+  });
+
+  const allTasks = [...workflowTasks, ...litigationTasks, ...threadTasks, ...proposedTasks];
   const visibleTasks = allTasks.filter((task) => {
     if (activeFilter === "mine") return task.mine && isOpen(task.status);
     if (activeFilter === "overdue") return isOpen(task.status) && isOverdue(task.dueAt);
@@ -264,7 +303,8 @@ export default async function TasksPage({
           task.approver) ||
         (task.kind === "proposed" &&
           task.status === "pending" &&
-          task.approver)
+          task.approver) ||
+        (task.kind === "thread" && task.status === "awaiting_review" && task.approver)
       );
     }
     if (activeFilter === "proposed") return task.kind === "proposed";
@@ -385,6 +425,34 @@ export default async function TasksPage({
                         projectId={task.projectId ?? ""}
                         actionId={task.id}
                       />
+                    </div>
+                  </details>
+                ) : null}
+
+                {task.kind === "workflow" &&
+                task.pendingExtensions.length &&
+                access.permissions.includes("tasks.review_extensions") ? (
+                  <details className="mt-4 border-t border-line pt-4">
+                    <summary className="cursor-pointer text-sm font-bold text-brand">
+                      طلبات تمديد بانتظار القرار ({task.pendingExtensions.length})
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                      {task.pendingExtensions.map((extension) => (
+                        <div key={extension.id} className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm font-bold text-amber-950">
+                            الموعد المطلوب: {formatDate(extension.requested_due_at)}
+                          </p>
+                          {extension.notes ? (
+                            <p className="mt-2 text-sm leading-7 text-amber-900">{extension.notes}</p>
+                          ) : null}
+                          <div className="mt-4">
+                            <WorkflowExtensionReviewForm
+                              projectId={task.projectId ?? ""}
+                              updateId={extension.id}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </details>
                 ) : null}

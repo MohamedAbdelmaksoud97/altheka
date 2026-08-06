@@ -351,6 +351,7 @@ function StaffHistory({ entries }: { entries: StaffHistoryEntry[] }) {
               <p className="text-muted">
                 {entry.actorName} ·{" "}
                 {new Intl.DateTimeFormat("ar-EG", {
+                  timeZone: "Asia/Riyadh",
                   dateStyle: "medium",
                   timeStyle: "short",
                 }).format(new Date(entry.createdAt))}

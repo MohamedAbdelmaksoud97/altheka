@@ -11,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { ClientApprovalResponseForm } from "@/components/operations/forms";
 import {
   ContractAcceptanceForm,
   ProposalResponseForm,
@@ -50,6 +51,8 @@ export default async function ClientRequestPage({
     documentsResult,
     projectResult,
     documentCategoriesResult,
+    approvalsResult,
+    consultationResult,
   ] = await Promise.all([
     supabase
       .from("service_requests")
@@ -91,6 +94,17 @@ export default async function ClientRequestPage({
       .eq("is_active", true)
       .in("scope", ["all", "request", "client"])
       .order("sort_order"),
+    supabase
+      .from("client_approval_requests")
+      .select("id,title,description,status,due_at,document_id,client_approval_responses(decision,notes,responded_at)")
+      .eq("service_request_id", id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("legal_consultation_responses")
+      .select("id,body,document_id,status,updated_at")
+      .eq("service_request_id", id)
+      .eq("status", "published")
+      .maybeSingle(),
   ]);
 
   const request = requestResult.data;
@@ -171,6 +185,7 @@ export default async function ClientRequestPage({
             <p className="mt-2 text-xs text-muted">
               تاريخ الطلب:{" "}
               {new Intl.DateTimeFormat("ar-EG", {
+                timeZone: "Asia/Riyadh",
                 dateStyle: "long",
               }).format(new Date(request.created_at))}
             </p>
@@ -214,6 +229,29 @@ export default async function ClientRequestPage({
 
       <div className="mt-7 grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="space-y-7">
+          {(approvalsResult.data ?? []).length ? (
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4"><BadgeCheck className="size-5 text-brand" aria-hidden="true" /><h2 className="font-bold">الموافقات المطلوبة</h2></div>
+              <div className="divide-y divide-line">
+                {(approvalsResult.data ?? []).map((approval) => {
+                  const response = (approval.client_approval_responses as unknown as { decision: string; notes: string | null; responded_at: string }[])?.[0];
+                  return <article key={approval.id} className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-3"><div><p className="font-bold">{approval.title}</p>{approval.description ? <p className="mt-2 text-sm leading-7 text-muted">{approval.description}</p> : null}</div><span className="text-xs font-bold text-brand">{approval.status === "sent" ? "مطلوب ردك" : approval.status === "approved" ? "تمت الموافقة" : "تم الرفض"}</span></div>
+                    {approval.document_id ? <a href={`/documents/${approval.document_id}/download`} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-brand"><Download className="size-4" />عرض المستند</a> : null}
+                    {approval.status === "sent" ? <ClientApprovalResponseForm approvalRequestId={approval.id} /> : response ? <p className="mt-3 rounded-md bg-[#f7f9f8] p-3 text-sm text-muted">تم تسجيل ردك{response.notes ? `: ${response.notes}` : "."}</p> : null}
+                  </article>;
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {consultationResult.data ? (
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4"><FileText className="size-5 text-brand" aria-hidden="true" /><h2 className="font-bold">الرد القانوني</h2></div>
+              <div className="p-5"><p className="whitespace-pre-wrap text-sm leading-8">{consultationResult.data.body}</p>{consultationResult.data.document_id ? <a href={`/documents/${consultationResult.data.document_id}/download`} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-brand"><Download className="size-4" />فتح ملف الرد القانوني</a> : null}</div>
+            </section>
+          ) : null}
+
           {latestProposal ? (
             <section className="rounded-md border border-line bg-surface">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
@@ -248,7 +286,7 @@ export default async function ClientRequestPage({
                     <div>
                       <p className="text-xs text-muted">صالح حتى</p>
                       <p className="mt-1 font-bold">
-                        {new Intl.DateTimeFormat("ar-EG").format(
+                        {new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh" }).format(
                           new Date(latestProposal.valid_until),
                         )}
                       </p>
@@ -381,6 +419,7 @@ export default async function ClientRequestPage({
                       ) : null}
                       <time className="mt-1 block text-[11px] text-muted">
                         {new Intl.DateTimeFormat("ar-EG", {
+                          timeZone: "Asia/Riyadh",
                           dateStyle: "medium",
                           timeStyle: "short",
                         }).format(new Date(event.created_at))}

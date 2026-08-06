@@ -8,19 +8,39 @@ import {
   Check,
   ClipboardPlus,
   LoaderCircle,
+  MessageSquareText,
   PenLine,
   ScrollText,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { saudiDateTimeLocalValue } from "@/lib/datetime";
 import {
   createAppointmentAction,
+  createClientApprovalRequestAction,
+  createProjectTaskThreadAction,
+  createWorkspaceConversationAction,
+  sendWorkspaceMessageAction,
   createEstatePartyApprovalRequestAction,
   createPowerOfAttorneyAction,
   proposeWorkflowActionAction,
   recordWorkflowActionUpdateAction,
+  requestPreContractExtensionAction,
+  respondClientApprovalRequestAction,
+  reviewPreContractExtensionAction,
+  reviewPreContractAttentionNoticeAction,
+  reviewProjectAttentionNoticeAction,
+  setProjectHealthAction,
+  submitProjectTaskStepAction,
+  reviewProjectTaskStepAction,
+  closeProjectTaskThreadAction,
+  requestProjectTaskStepExtensionAction,
+  reviewProjectTaskStepExtensionAction,
+  reviewProjectTaskStepAttentionAction,
+  reviewWorkflowActionExtensionAction,
   respondEstatePartyApprovalAction,
   reviewProposedWorkflowActionAction,
+  upsertLegalConsultationResponseAction,
 } from "@/app/actions/operations";
 import {
   initialActionState,
@@ -75,8 +95,7 @@ function SubmitButton({
 }
 
 function dateTimeLocalValue(date: Date) {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  return saudiDateTimeLocalValue(date);
 }
 
 export function WorkflowActionUpdateForm({
@@ -127,6 +146,63 @@ export function WorkflowActionUpdateForm({
       />
       <ActionNotice state={state} />
       <SubmitButton label="حفظ تحديث المهمة" icon={PenLine} />
+    </form>
+  );
+}
+
+export function WorkspaceConversationForm({ staff }: { staff: Option[] }) {
+  const [state, action] = useActionState(createWorkspaceConversationAction, initialActionState);
+  return <form action={action} className="space-y-3">
+    <input name="title" required minLength={3} placeholder="اسم مجموعة العمل" className={inputClass} />
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-bold text-ink">المعنيون بالمجموعة</legend>
+      <div className="grid max-h-52 gap-2 overflow-y-auto rounded-md border border-line p-3 sm:grid-cols-2">
+        {staff.map((member) => <label key={member.id} className="flex items-center gap-2 text-sm"><input type="checkbox" name="participant_user_ids" value={member.id} className="size-4" />{member.name}</label>)}
+      </div>
+    </fieldset>
+    <ActionNotice state={state} />
+    <SubmitButton label="إنشاء مجموعة" icon={MessageSquareText} />
+  </form>;
+}
+
+export function WorkspaceMessageForm({ conversationId }: { conversationId: string }) {
+  const [state, action] = useActionState(sendWorkspaceMessageAction, initialActionState);
+  return <form action={action} className="space-y-3"><input type="hidden" name="conversation_id" value={conversationId}/><textarea name="body" required rows={3} placeholder="اكتب رسالة لفريق العمل" className={textareaClass}/><ActionNotice state={state}/><SubmitButton label="إرسال" icon={MessageSquareText}/></form>;
+}
+
+export function WorkflowExtensionReviewForm({
+  projectId,
+  updateId,
+}: {
+  projectId: string;
+  updateId: string;
+}) {
+  const [state, action] = useActionState(
+    reviewWorkflowActionExtensionAction,
+    initialActionState,
+  );
+
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="workflow_action_update_id" value={updateId} />
+      <textarea
+        name="review_notes"
+        rows={2}
+        placeholder="ملاحظة المراجعة، وتكون مطلوبة عند الرفض"
+        className={textareaClass}
+      />
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" name="decision" value="approved" className="inline-flex min-h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-bold text-white">
+          <Check className="size-4" aria-hidden="true" />
+          اعتماد التمديد
+        </button>
+        <button type="submit" name="decision" value="rejected" className="inline-flex min-h-10 items-center gap-2 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">
+          <X className="size-4" aria-hidden="true" />
+          رفض التمديد
+        </button>
+      </div>
     </form>
   );
 }
@@ -523,3 +599,190 @@ export function EstateApprovalResponseForm({
     </form>
   );
 }
+
+export function ClientApprovalRequestForm({
+  clientId,
+  requests,
+  projects,
+  documents,
+}: {
+  clientId: string;
+  requests: Option[];
+  projects: Option[];
+  documents: Option[];
+}) {
+  const [state, action] = useActionState(createClientApprovalRequestAction, initialActionState);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="client_id" value={clientId} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <select name="service_request_id" className={inputClass}>
+          <option value="">بدون طلب محدد</option>
+          {requests.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+        <select name="project_id" className={inputClass}>
+          <option value="">بدون مشروع محدد</option>
+          {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </div>
+      <input name="title" required minLength={3} placeholder="عنوان الموافقة المطلوبة" className={inputClass} />
+      <select name="document_id" className={inputClass}>
+        <option value="">بدون مستند مرفق</option>
+        {documents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select>
+      <input type="datetime-local" name="due_at" className={inputClass} />
+      <textarea name="description" rows={3} placeholder="تفاصيل الموافقة" className={textareaClass} />
+      <ActionNotice state={state} />
+      <SubmitButton label="إرسال طلب الموافقة" icon={BadgeCheck} />
+    </form>
+  );
+}
+
+export function ClientApprovalResponseForm({
+  approvalRequestId,
+}: {
+  approvalRequestId: string;
+}) {
+  const [state, action] = useActionState(respondClientApprovalRequestAction, initialActionState);
+  return (
+    <form action={action} className="mt-4 space-y-3">
+      <input type="hidden" name="approval_request_id" value={approvalRequestId} />
+      <textarea name="notes" rows={2} placeholder="ملاحظاتك على الموافقة" className={textareaClass} />
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" name="decision" value="approved" className="inline-flex min-h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-bold text-white"><Check className="size-4" />أوافق</button>
+        <button type="submit" name="decision" value="rejected" className="inline-flex min-h-10 items-center gap-2 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger"><X className="size-4" />لا أوافق</button>
+      </div>
+    </form>
+  );
+}
+
+export function LegalConsultationResponseForm({
+  requestId,
+  documents,
+  initialBody = "",
+  initialDocumentId = "",
+}: {
+  requestId: string;
+  documents: Option[];
+  initialBody?: string;
+  initialDocumentId?: string;
+}) {
+  const [state, action] = useActionState(upsertLegalConsultationResponseAction, initialActionState);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="service_request_id" value={requestId} />
+      <textarea name="body" rows={8} defaultValue={initialBody} placeholder="نص الرد القانوني" className={textareaClass} />
+      <select name="document_id" defaultValue={initialDocumentId} className={inputClass}>
+        <option value="">بدون ملف PDF</option>
+        {documents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select>
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" name="publish" value="false" className="min-h-10 rounded-md border border-line bg-white px-4 text-sm font-bold">حفظ مسودة</button>
+        <button type="submit" name="publish" value="true" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد ونشر للعميل</button>
+      </div>
+    </form>
+  );
+}
+
+export function PreContractExtensionRequestForm({ requestId }: { requestId: string }) {
+  const [state, action] = useActionState(requestPreContractExtensionAction, initialActionState);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="service_request_id" value={requestId} />
+      <select name="phase" required className={inputClass}>
+        <option value="offer">إعداد العرض الفني والمالي</option>
+        <option value="client_response">انتظار رد العميل</option>
+        <option value="contract">إعداد العقد</option>
+      </select>
+      <input type="datetime-local" name="requested_due_at" required className={inputClass} />
+      <textarea name="reason" rows={3} required minLength={5} placeholder="سبب طلب التمديد" className={textareaClass} />
+      <ActionNotice state={state} />
+      <SubmitButton label="طلب تمديد" icon={CalendarPlus} />
+    </form>
+  );
+}
+
+export function PreContractExtensionReviewForm({
+  requestId,
+  extensionId,
+}: {
+  requestId: string;
+  extensionId: string;
+}) {
+  const [state, action] = useActionState(reviewPreContractExtensionAction, initialActionState);
+  return (
+    <form action={action} className="mt-3 space-y-3">
+      <input type="hidden" name="service_request_id" value={requestId} />
+      <input type="hidden" name="extension_id" value={extensionId} />
+      <textarea name="notes" rows={2} placeholder="ملاحظات القرار" className={textareaClass} />
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" name="decision" value="approved" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد التمديد</button>
+        <button type="submit" name="decision" value="rejected" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">رفض</button>
+      </div>
+    </form>
+  );
+}
+
+export function PreContractAttentionReviewForm({requestId,noticeId}:{requestId:string;noticeId:string}){
+  const [state,action]=useActionState(reviewPreContractAttentionNoticeAction,initialActionState);
+  return <form action={action} className="mt-3 space-y-3"><input type="hidden" name="service_request_id" value={requestId}/><input type="hidden" name="notice_id" value={noticeId}/><textarea name="reason" rows={2} placeholder="سبب الرفض عند الرفض" className={textareaClass}/><ActionNotice state={state}/><div className="flex gap-2"><button type="submit" name="decision" value="active" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد لفت النظر</button><button type="submit" name="decision" value="rejected" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">رفض</button></div></form>;
+}
+
+export function AttentionNoticeReviewForm({ projectId, noticeId }: { projectId: string; noticeId: string }) {
+  const [state, action] = useActionState(reviewProjectAttentionNoticeAction, initialActionState);
+  return (
+    <form action={action} className="mt-3 space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="notice_id" value={noticeId} />
+      <textarea name="reason" rows={2} placeholder="سبب الرفض عند الرفض" className={textareaClass} />
+      <ActionNotice state={state} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" name="decision" value="active" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد لفت النظر</button>
+        <button type="submit" name="decision" value="rejected" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">رفض لفت النظر</button>
+      </div>
+    </form>
+  );
+}
+
+export function ProjectHealthForm({ projectId, currentStatus }: { projectId: string; currentStatus: string }) {
+  const [state, action] = useActionState(setProjectHealthAction, initialActionState);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <select name="health_status" defaultValue={currentStatus === "yellow" ? "yellow" : "green"} className={inputClass}>
+        <option value="green">أخضر: العمل يسير داخليًا</option>
+        <option value="yellow">أصفر: انتظار جهة خارجية</option>
+      </select>
+      <textarea name="reason" rows={2} placeholder="سبب التوقف الخارجي" className={textareaClass} />
+      <ActionNotice state={state} />
+      <SubmitButton label="تحديث حالة المشروع" icon={BadgeCheck} />
+    </form>
+  );
+}
+
+export function ProjectTaskThreadForm({projectId,members}:{projectId:string;members:Option[]}){
+  const [state,action]=useActionState(createProjectTaskThreadAction,initialActionState);
+  return <form action={action} className="grid gap-3 sm:grid-cols-2"><input type="hidden" name="project_id" value={projectId}/><input name="thread_title" required placeholder="عنوان صندوق العمل" className={inputClass}/><input name="step_title" required placeholder="المهمة الأولى" className={inputClass}/><select name="assigned_to" required className={inputClass}><option value="">اختر المكلف</option>{members.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><input type="datetime-local" name="due_at" required className={inputClass}/><div className="sm:col-span-2"><ActionNotice state={state}/></div><div className="sm:col-span-2"><SubmitButton label="إضافة مهمة" icon={ClipboardPlus}/></div></form>;
+}
+
+export function ProjectTaskStepResponseForm({projectId,stepId}:{projectId:string;stepId:string}){
+  const [state,action]=useActionState(submitProjectTaskStepAction,initialActionState);
+  return <form action={action} className="mt-3 space-y-3"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="step_id" value={stepId}/><textarea name="response_text" required rows={3} placeholder="رد المحامي" className={textareaClass}/><input name="proposed_next_title" placeholder="المهمة القادمة المقترحة" className={inputClass}/><input type="datetime-local" name="proposed_next_due_at" className={inputClass}/><ActionNotice state={state}/><SubmitButton label="إرسال الرد" icon={MessageSquareText}/></form>;
+}
+
+export function ProjectTaskStepReviewForm({projectId,stepId,proposedTitle="",proposedDueAt=""}:{projectId:string;stepId:string;proposedTitle?:string;proposedDueAt?:string}){
+  const [state,action]=useActionState(reviewProjectTaskStepAction,initialActionState);
+  return <form action={action} className="mt-3 space-y-3"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="step_id" value={stepId}/><input name="next_title" defaultValue={proposedTitle} placeholder="اعتماد أو تعديل المهمة التالية" className={inputClass}/><input type="datetime-local" name="next_due_at" defaultValue={proposedDueAt ? saudiDateTimeLocalValue(new Date(proposedDueAt)) : ""} className={inputClass}/><textarea name="review_notes" rows={2} placeholder="ملاحظات المراجعة أو سبب الإعادة" className={textareaClass}/><ActionNotice state={state}/><div className="flex gap-2"><button type="submit" name="decision" value="approved" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">قبول الرد والاقتراح</button><button type="submit" name="decision" value="returned" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">إعادة للمحامي</button></div></form>;
+}
+
+export function ProjectTaskThreadCloseForm({projectId,threadId}:{projectId:string;threadId:string}){
+  const [state,action]=useActionState(closeProjectTaskThreadAction,initialActionState);
+  return <form action={action} className="mt-3"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="thread_id" value={threadId}/><ActionNotice state={state}/><button type="submit" className="mt-2 min-h-10 rounded-md border border-line bg-white px-4 text-sm font-bold">إغلاق وأرشفة الصندوق</button></form>;
+}
+
+export function ProjectTaskStepExtensionForm({projectId,stepId}:{projectId:string;stepId:string}){const[state,action]=useActionState(requestProjectTaskStepExtensionAction,initialActionState);return <form action={action} className="mt-3 space-y-3"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="step_id" value={stepId}/><input type="datetime-local" name="requested_due_at" required className={inputClass}/><textarea name="reason" required minLength={5} rows={2} placeholder="سبب التمديد" className={textareaClass}/><ActionNotice state={state}/><SubmitButton label="طلب تمديد" icon={CalendarPlus}/></form>}
+export function ProjectTaskStepExtensionReviewForm({projectId,extensionId}:{projectId:string;extensionId:string}){const[state,action]=useActionState(reviewProjectTaskStepExtensionAction,initialActionState);return <form action={action} className="mt-3 space-y-2"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="extension_id" value={extensionId}/><textarea name="notes" rows={2} placeholder="ملاحظات القرار" className={textareaClass}/><ActionNotice state={state}/><div className="flex gap-2"><button type="submit" name="decision" value="approved" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد التمديد</button><button type="submit" name="decision" value="rejected" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">رفض</button></div></form>}
+export function ProjectTaskStepAttentionReviewForm({projectId,noticeId}:{projectId:string;noticeId:string}){const[state,action]=useActionState(reviewProjectTaskStepAttentionAction,initialActionState);return <form action={action} className="mt-3 space-y-2"><input type="hidden" name="project_id" value={projectId}/><input type="hidden" name="notice_id" value={noticeId}/><textarea name="reason" rows={2} placeholder="سبب الرفض" className={textareaClass}/><ActionNotice state={state}/><div className="flex gap-2"><button type="submit" name="decision" value="active" className="min-h-10 rounded-md bg-brand px-4 text-sm font-bold text-white">اعتماد لفت النظر</button><button type="submit" name="decision" value="rejected" className="min-h-10 rounded-md border border-danger bg-white px-4 text-sm font-bold text-danger">رفض</button></div></form>}

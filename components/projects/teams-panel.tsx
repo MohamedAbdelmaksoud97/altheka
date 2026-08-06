@@ -12,6 +12,7 @@ type TeamMember = {
   id: string;
   name: string;
   role: "leader" | "member" | "observer";
+  workType: "inventory" | "study" | "pleading" | "follow_up" | "drafting" | "other" | null;
 };
 type Team = {
   id: string;
@@ -36,6 +37,15 @@ const roleLabels: Record<TeamMember["role"], string> = {
   leader: "قائد",
   member: "عضو منفذ",
   observer: "متابع",
+};
+
+const workTypeLabels: Record<NonNullable<TeamMember["workType"]>, string> = {
+  inventory: "حصر",
+  study: "دراسة",
+  pleading: "مرافعة",
+  follow_up: "متابعة",
+  drafting: "صياغة",
+  other: "أخرى",
 };
 
 export function ProjectTeamsPanel({
@@ -102,12 +112,14 @@ export function ProjectTeamsPanel({
                 <p className="mt-3 text-xs text-muted">
                   {team.startsAt
                     ? `من ${new Intl.DateTimeFormat("ar-SA", {
+                        timeZone: "Asia/Riyadh",
                         dateStyle: "medium",
                       }).format(new Date(team.startsAt))}`
                     : "بداية مفتوحة"}
                   {" · "}
                   {team.endsAt
                     ? `حتى ${new Intl.DateTimeFormat("ar-SA", {
+                        timeZone: "Asia/Riyadh",
                         dateStyle: "medium",
                       }).format(new Date(team.endsAt))}`
                     : "دون نهاية"}
@@ -120,7 +132,7 @@ export function ProjectTeamsPanel({
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-bold">{member.name}</p>
                         <span className="text-xs text-muted">
-                          {roleLabels[member.role]}
+                          {roleLabels[member.role]}{member.workType ? ` · ${workTypeLabels[member.workType]}` : ""}
                         </span>
                       </div>
                       {canAssign && member.id !== team.leaderId ? (

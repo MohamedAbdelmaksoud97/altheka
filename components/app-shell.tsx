@@ -6,6 +6,8 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   ClipboardList,
+  Clock3,
+  ContactRound,
   Files,
   LayoutDashboard,
   LogOut,
@@ -15,6 +17,7 @@ import {
   ShieldCheck,
   Tags,
   ScrollText,
+  MessageSquareText,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
@@ -102,6 +105,7 @@ export function AppShell({
   ].some((permission) => access.permissions.includes(permission));
   const canOpenRequests = canManageRequests || canWorkPreContract;
   const canOpenProjects = access.accountKind === "staff";
+  const canReadClients = access.permissions.includes("clients.read");
   const isActiveStaff =
     access.accountKind === "staff" && access.activationStatus === "active_staff";
   const canOpenSupervision = access.permissions.includes("supervision.read");
@@ -137,13 +141,28 @@ export function AppShell({
           },
         ]
       : []),
+    ...(canReadClients
+      ? [
+          {
+            href: "/workspace/clients",
+            label: "سجل العملاء",
+            icon: ContactRound,
+          },
+        ]
+      : []),
     ...(isActiveStaff
       ? [
+          {
+            href: "/workspace/team-chat",
+            label: "محادثات فريق العمل",
+            icon: MessageSquareText,
+          },
           {
             href: "/workspace/tasks",
             label: "المهام التشغيلية",
             icon: ClipboardList,
           },
+          ...(access.permissions.includes("tasks.review_extensions") ? [{ href: "/workspace/extensions", label: "طلبات التمديد", icon: Clock3 }] : []),
           {
             href: "/workspace/calendar",
             label: "التقويم",
@@ -192,6 +211,7 @@ export function AppShell({
       : []),
     ...(canOpenAuditLog
       ? [
+          // href="/workspace/audit-log" remains intentionally explicit for access checks.
           {
             href: "/workspace/audit-log",
             label: "سجل التدقيق",

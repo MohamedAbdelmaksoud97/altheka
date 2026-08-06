@@ -5,6 +5,7 @@ import { CalendarDays, Clock3, Gavel, MapPin, Plus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { AppointmentForm } from "@/components/operations/forms";
 import { getAccessContext } from "@/lib/auth/access";
+import { saudiDateValue } from "@/lib/datetime";
 import { createClient } from "@/lib/supabase/server";
 
 type CalendarView = "week" | "month";
@@ -16,31 +17,46 @@ function relationOne<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function saudiDayStart(dateKey: string) {
+  return new Date(`${dateKey}T00:00:00+03:00`);
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+function addSaudiDays(date: Date, days: number) {
+  const [year, month, day] = saudiDateValue(date).split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return saudiDayStart(
+    `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      next.getUTCDate(),
+    ).padStart(2, "0")}`,
+  );
+}
+
+function dayOfWeek(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00Z`).getUTCDay();
 }
 
 function getRange(view: CalendarView, rawDate?: string) {
-  const anchor = rawDate ? new Date(rawDate) : new Date();
-  const safeAnchor = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+  const anchorKey = /^\d{4}-\d{2}-\d{2}$/.test(rawDate ?? "")
+    ? (rawDate as string)
+    : saudiDateValue();
+  const anchor = saudiDayStart(anchorKey);
   if (view === "month") {
-    const start = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth(), 1);
-    const end = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth() + 1, 1);
+    const [year, month] = anchorKey.split("-").map(Number);
+    const start = saudiDayStart(`${year}-${String(month).padStart(2, "0")}-01`);
+    const end = saudiDayStart(
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, "0")}-01`,
+    );
     return { start, end };
   }
-  const day = startOfDay(safeAnchor);
-  const start = addDays(day, -day.getDay());
-  return { start, end: addDays(start, 7) };
+  const start = addSaudiDays(anchor, -dayOfWeek(anchorKey));
+  return { start, end: addSaudiDays(start, 7) };
 }
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Asia/Riyadh",
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
@@ -48,6 +64,7 @@ function formatDateTime(value: string) {
 
 function formatDay(value: Date) {
   return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Asia/Riyadh",
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -185,9 +202,9 @@ export default async function CalendarPage({
 
   const days =
     view === "week"
-      ? Array.from({ length: 7 }, (_, index) => addDays(start, index))
+      ? Array.from({ length: 7 }, (_, index) => addSaudiDays(start, index))
       : Array.from({ length: Math.ceil((end.getTime() - start.getTime()) / 86_400_000) }, (_, index) =>
-          addDays(start, index),
+          addSaudiDays(start, index),
         );
 
   const clients: Option[] = ((clientsResult.data ?? []) as any[]).map((client) => ({
@@ -253,8 +270,7 @@ export default async function CalendarPage({
           <div className="mt-5 grid gap-3">
             {days.map((day) => {
               const dayEvents = events.filter((event) => {
-                const eventDay = startOfDay(new Date(event.startsAt));
-                return eventDay.getTime() === startOfDay(day).getTime();
+                return saudiDateValue(new Date(event.startsAt)) === saudiDateValue(day);
               });
               return (
                 <article key={day.toISOString()} className="rounded-md border border-line bg-surface">

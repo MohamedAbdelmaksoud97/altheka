@@ -7,6 +7,8 @@ import {
   ClockAlert,
   FileCheck2,
   Gavel,
+  MessageSquareText,
+  FolderKanban,
   UserRoundCheck,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -15,6 +17,7 @@ import { labelFor, projectTypeLabels } from "@/lib/projects/labels";
 import { createClient } from "@/lib/supabase/server";
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
+  timeZone: "Asia/Riyadh",
   dateStyle: "medium",
   timeStyle: "short",
 });
@@ -36,10 +39,11 @@ export default async function WorkspacePage() {
 
   const [
     projectsResult,
-    requestsResult,
     pendingStaffResult,
     hearingsResult,
-    tasksResult,
+    projectStatusResult,
+    clientsResult,
+    channelsResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -50,11 +54,6 @@ export default async function WorkspacePage() {
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(6),
-    supabase
-      .from("service_requests")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .not("status", "in", '("converted_to_project","cancelled","rejected")'),
     canApproveStaff
       ? supabase
           .from("staff_registration_requests")
@@ -71,33 +70,53 @@ export default async function WorkspacePage() {
       .order("hearing_at")
       .limit(4),
     supabase
-      .from("workflow_action_instances")
-      .select(
-        "id, status, due_at, workflow_action_templates(name), workflow_stage_instances(workflow_instances(project_id, projects(name)))",
-      )
-      .in("status", ["ready", "in_progress", "submitted", "awaiting_approval"])
-      .order("due_at", { ascending: true, nullsFirst: false })
-      .limit(5),
+      .from("projects")
+      .select("status")
+      .is("deleted_at", null),
+    supabase
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .is("archived_at", null),
+    supabase
+      .from("conversations")
+      .select("id,title,last_message_at,conversation_participants(user_id)")
+      .eq("channel_key", "workspace")
+      .eq("conversation_type", "internal")
+      .is("archived_at", null)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(6),
   ]);
 
   const projects = projectsResult.data ?? [];
-  const openTasks = tasksResult.data ?? [];
+  const projectsByStatus = new Map<string, number>();
+  for (const project of projectStatusResult.data ?? []) {
+    projectsByStatus.set(
+      project.status,
+      (projectsByStatus.get(project.status) ?? 0) + 1,
+    );
+  }
   const metrics = [
     {
+      label: "إجمالي المشاريع",
+      value: projectStatusResult.data?.length ?? 0,
+      icon: FolderKanban,
+      accent: "text-brand bg-[#e5eee9]",
+    },
+    {
       label: "المشاريع النشطة",
-      value: projects.length,
+      value: projectsByStatus.get("active") ?? 0,
       icon: BriefcaseBusiness,
       accent: "text-brand bg-[#e5eee9]",
     },
     {
-      label: "طلبات قبل التعاقد",
-      value: requestsResult.count ?? 0,
+      label: "المشاريع المنتهية",
+      value: projectsByStatus.get("completed") ?? 0,
       icon: FileCheck2,
       accent: "text-[#825f17] bg-[#f5ecd6]",
     },
     {
-      label: "مهام قيد المتابعة",
-      value: openTasks.length,
+      label: "المشاريع المؤرشفة",
+      value: projectsByStatus.get("archived") ?? 0,
       icon: ClockAlert,
       accent: "text-[#9b3b3b] bg-[#f7e7e7]",
     },
@@ -127,7 +146,25 @@ export default async function WorkspacePage() {
         ))}
       </section>
 
-      <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1.4fr)_minmax(22rem,1fr)]">
+      <section className="mt-7 border-y border-line bg-surface px-5 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-bold">سجل العملاء</h2>
+            <p className="mt-1 text-sm text-muted">
+              ملف موحد للعميل يربط طلباته ومشاريعه ومستنداته وتوكيلاته.
+            </p>
+          </div>
+          <Link
+            href="/workspace/clients"
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-bold text-brand hover:border-brand"
+          >
+            عرض السجل ({clientsResult.count ?? 0})
+            <ArrowLeft className="size-4" aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
+
+      <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1.25fr)_minmax(19rem,.8fr)_18rem]">
         <section className="rounded-md border border-line bg-surface">
           <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
             <div className="flex items-center gap-3">
@@ -232,6 +269,15 @@ export default async function WorkspacePage() {
             )}
           </div>
         </section>
+        <aside className="h-fit rounded-md border border-line bg-surface xl:sticky xl:top-6">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-4">
+            <div className="flex items-center gap-2"><MessageSquareText className="size-5 text-brand" /><h2 className="font-bold">محادثات فريق العمل</h2></div>
+            <Link href="/workspace/team-chat" className="text-xs font-bold text-brand">فتح</Link>
+          </div>
+          <div className="divide-y divide-line">
+            {(channelsResult.data ?? []).length ? (channelsResult.data ?? []).map((channel) => <Link key={channel.id} href={`/workspace/team-chat?channel=${channel.id}`} className="block px-4 py-3 hover:bg-[#fafbfa]"><p className="truncate text-sm font-bold">{channel.title}</p><p className="mt-1 text-xs text-muted">{channel.conversation_participants?.length ?? 0} أعضاء</p></Link>) : <p className="px-4 py-8 text-center text-sm text-muted">لا توجد مجموعات بعد.</p>}
+          </div>
+        </aside>
       </div>
 
       <section className="mt-7 rounded-md border border-line bg-surface">

@@ -108,7 +108,7 @@ export function StaffApprovalForm({
           <p className="mt-1 text-sm text-muted">
             {request.email || "لا يوجد بريد"} ·{" "}
             {request.phone || "لا يوجد رقم تواصل"} · طلب في{" "}
-            {new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" }).format(
+            {new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh", dateStyle: "medium" }).format(
               new Date(request.createdAt),
             )}
           </p>

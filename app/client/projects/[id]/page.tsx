@@ -21,6 +21,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
+  timeZone: "Asia/Riyadh",
   dateStyle: "medium",
   timeStyle: "short",
 });

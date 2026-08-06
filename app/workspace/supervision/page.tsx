@@ -31,6 +31,7 @@ type PortfolioRow = {
 };
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
+  timeZone: "Asia/Riyadh",
   dateStyle: "medium",
   timeStyle: "short",
 });

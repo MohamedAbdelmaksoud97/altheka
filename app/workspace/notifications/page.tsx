@@ -7,11 +7,16 @@ import { getAccessContext } from "@/lib/auth/access";
 import { createClient } from "@/lib/supabase/server";
 
 const dateTime = new Intl.DateTimeFormat("ar-SA", {
+  timeZone: "Asia/Riyadh",
   dateStyle: "medium",
   timeStyle: "short",
 });
 
-export default async function NotificationsPage() {
+export default async function NotificationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ category?: string }>;
+}) {
   const access = await getAccessContext();
   if (!access) redirect("/login");
   if (access.activationStatus !== "active_staff") redirect("/waiting");
@@ -24,9 +29,39 @@ export default async function NotificationsPage() {
     .order("created_at", { ascending: false })
     .limit(100);
 
+  const categories = [
+    { key: "all", label: "الكل" },
+    { key: "new_clients", label: "العملاء الجدد" },
+    { key: "litigation", label: "التقاضي" },
+    { key: "estates", label: "التركات" },
+    { key: "administrative", label: "الإدارية" },
+    { key: "operations", label: "التشغيلية" },
+    { key: "appointments", label: "المواعيد" },
+    { key: "powers", label: "التوكيلات" },
+    { key: "attention", label: "لفت النظر" },
+  ];
+  const categoryFor = (type: string) => {
+    if (type.includes("litigation")) return "litigation";
+    if (type.includes("estate")) return "estates";
+    if (type.includes("attention")) return "attention";
+    if (type.includes("appointment")) return "appointments";
+    if (type.includes("power_of_attorney")) return "powers";
+    if (type.includes("request") || type.includes("proposal") || type.includes("contract") || type.includes("study")) return "new_clients";
+    return "administrative";
+  };
+  const { category = "all" } = await searchParams;
+  const selectedCategory = categories.some((item) => item.key === category)
+    ? category
+    : "all";
+  const visibleNotifications = (notifications ?? []).filter(
+    (notification) =>
+      selectedCategory === "all" ||
+      categoryFor(notification.notification_type) === selectedCategory,
+  );
+
   return (
     <AppShell access={access} eyebrow="المتابعة" title="الإشعارات">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <BellRing className="size-5 text-brand" aria-hidden="true" />
           <h2 className="font-bold">آخر التنبيهات والتكليفات</h2>
@@ -38,9 +73,17 @@ export default async function NotificationsPage() {
         </span>
       </div>
 
-      {notifications?.length ? (
+      <nav className="mt-5 flex gap-2 overflow-x-auto" aria-label="تصنيف الإشعارات">
+        {categories.map((item) => (
+          <Link key={item.key} href={item.key === "all" ? "/workspace/notifications" : `/workspace/notifications?category=${item.key}`} className={`shrink-0 rounded-md border px-3 py-2 text-xs font-bold hover:border-brand hover:text-brand ${selectedCategory === item.key ? "border-brand bg-[#e5eee9] text-brand" : "border-line bg-white text-muted"}`}>
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+
+      {visibleNotifications.length ? (
         <div className="mt-4 divide-y divide-line rounded-md border border-line bg-surface">
-          {notifications.map((notification) => {
+          {visibleNotifications.map((notification) => {
             const data = notification.data as {
               project_id?: string;
               notice_id?: string;

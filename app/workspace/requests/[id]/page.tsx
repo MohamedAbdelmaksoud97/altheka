@@ -11,6 +11,12 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import {
+  LegalConsultationResponseForm,
+  PreContractExtensionRequestForm,
+  PreContractExtensionReviewForm,
+  PreContractAttentionReviewForm,
+} from "@/components/operations/forms";
+import {
   AssignRequestForm,
   ContractForm,
   ConvertToProjectForm,
@@ -66,6 +72,9 @@ export default async function WorkspaceRequestPage({
     eligibleStaffResult,
     projectResult,
     documentCategoriesResult,
+    extensionRequestsResult,
+    consultationResult,
+    preContractNoticesResult,
   ] = await Promise.all([
     supabase
       .from("service_requests")
@@ -77,7 +86,7 @@ export default async function WorkspaceRequestPage({
     supabase
       .from("pre_contract_cases")
       .select(
-        "responsible_id, executor_id, follower_id, approver_id, expected_project_type, assigned_at",
+        "responsible_id, executor_id, follower_id, approver_id, expected_project_type, assigned_at, offer_due_at, client_response_due_at, contract_due_at",
       )
       .eq("service_request_id", id)
       .maybeSingle(),
@@ -126,6 +135,21 @@ export default async function WorkspaceRequestPage({
       .eq("is_active", true)
       .in("scope", ["all", "request"])
       .order("sort_order"),
+    supabase
+      .from("pre_contract_extension_requests")
+      .select("id,phase,current_due_at,requested_due_at,reason,status,created_at,review_notes,requested_by,requester:profiles!pre_contract_extension_requests_requested_by_fkey(full_name)")
+      .eq("service_request_id", id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("legal_consultation_responses")
+      .select("id,body,document_id,status,updated_at")
+      .eq("service_request_id", id)
+      .maybeSingle(),
+    supabase
+      .from("pre_contract_attention_notices")
+      .select("id,phase,due_at,reason,status,rejection_reason,created_at")
+      .eq("service_request_id", id)
+      .order("created_at", { ascending: false }),
   ]);
 
   const request = requestResult.data;
@@ -231,6 +255,9 @@ export default async function WorkspaceRequestPage({
     (eligibleStaffResult.data ?? []) as EligibleStudyPerson[];
   const eligibleExecutors = eligibleStaff.filter((person) => person.can_execute);
   const eligibleApprovers = eligibleStaff.filter((person) => person.can_approve);
+  const canReviewExtensions = access.roleCodes.some((role) => ["super_admin", "executive_manager", "litigation_manager", "estates_manager"].includes(role));
+  const canReviewAttentionNotices = access.permissions.includes("attention_notices.review");
+  const canManageConsultation = access.permissions.includes("consultations.manage");
 
   const contract = contractsResult.data;
   const contractVersions = (contract?.contract_versions ?? []) as unknown as {
@@ -281,6 +308,28 @@ export default async function WorkspaceRequestPage({
 
       <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_23rem]">
         <div className="space-y-7">
+          {caseRecord ? (
+            <section className="rounded-md border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-5 py-4"><CalendarClock className="size-5 text-brand" aria-hidden="true" /><h2 className="font-bold">المدد الزمنية قبل التعاقد</h2></div>
+              <div className="grid gap-3 p-5 sm:grid-cols-3">
+                {[
+                  ["إعداد العرض", caseRecord.offer_due_at],
+                  ["انتظار رد العميل", caseRecord.client_response_due_at],
+                  ["إعداد العقد", caseRecord.contract_due_at],
+                ].map(([label, due]) => <div key={label} className="rounded-md border border-line p-3"><p className="text-xs text-muted">{label}</p><p className="mt-1 text-sm font-bold">{due ? new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh", dateStyle: "medium", timeStyle: "short" }).format(new Date(due)) : "لم تبدأ المدة"}</p></div>)}
+              </div>
+              {caseRecord.executor_id === access.userId ? <div className="border-t border-line p-5"><h3 className="mb-3 text-sm font-bold">طلب تمديد</h3><PreContractExtensionRequestForm requestId={id} /></div> : null}
+              {(extensionRequestsResult.data ?? []).length ? <div className="divide-y divide-line border-t border-line">{(extensionRequestsResult.data ?? []).map((extension) => {
+                const requester = Array.isArray(extension.requester) ? extension.requester[0] : extension.requester;
+                return <article key={extension.id} className="px-5 py-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold">طلب تمديد: {extension.phase === "offer" ? "العرض" : extension.phase === "contract" ? "العقد" : "رد العميل"}</p><p className="mt-1 text-xs text-muted">{requester?.full_name ?? "المختص"} · حتى {new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh", dateStyle: "medium", timeStyle: "short" }).format(new Date(extension.requested_due_at))}</p></div><span className="text-xs font-bold text-brand">{extension.status === "pending" ? "بانتظار الاعتماد" : extension.status === "approved" ? "معتمد" : "مرفوض"}</span></div><p className="mt-2 text-sm text-muted">{extension.reason}</p>{extension.status === "pending" && canReviewExtensions ? <PreContractExtensionReviewForm requestId={id} extensionId={extension.id} /> : null}</article>;
+              })}</div> : null}
+              {(preContractNoticesResult.data ?? []).length ? <div className="divide-y divide-line border-t border-line">{(preContractNoticesResult.data ?? []).map((notice)=><article key={notice.id} className="px-5 py-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-red-800">لفت نظر: {notice.phase==="offer"?"إعداد العرض":notice.phase==="contract"?"إعداد العقد":"انتظار رد العميل"}</p><p className="mt-1 text-sm text-muted">{notice.reason}</p></div><span className="text-xs font-bold">{notice.status==="pending"?"معلّق":notice.status==="active"?"قائم":notice.status==="rejected"?"مرفوض":"تم الاطلاع"}</span></div>{notice.rejection_reason?<p className="mt-2 text-sm text-red-700">سبب الرفض: {notice.rejection_reason}</p>:null}{notice.status==="pending"&&canReviewAttentionNotices?<PreContractAttentionReviewForm requestId={id} noticeId={notice.id}/>:null}</article>)}</div> : null}
+            </section>
+          ) : null}
+
+          {request.request_type === "consultation" && canManageConsultation ? (
+            <section className="rounded-md border border-line bg-surface"><div className="flex items-center gap-3 border-b border-line px-5 py-4"><FileText className="size-5 text-brand" aria-hidden="true" /><h2 className="font-bold">الرد القانوني على الاستشارة</h2></div><div className="p-5"><LegalConsultationResponseForm requestId={id} documents={documents.map((document) => ({ id: document.id, name: document.title }))} initialBody={consultationResult.data?.body ?? ""} initialDocumentId={consultationResult.data?.document_id ?? ""} /><p className="mt-3 text-xs text-muted">الحالة الحالية: {consultationResult.data?.status === "published" ? "منشور للعميل" : consultationResult.data ? "مسودة داخلية" : "لم يبدأ الرد"}</p></div></section>
+          ) : null}
           {canLinkClient && request.status === "received" ? (
             <OperationSection
               title="ربط حساب العميل"
@@ -540,7 +589,7 @@ export default async function WorkspaceRequestPage({
                         ? ` · رقم ${document.document_number}`
                         : ""}
                       {document.document_date
-                        ? ` · ${new Intl.DateTimeFormat("ar-EG").format(
+                        ? ` · ${new Intl.DateTimeFormat("ar-EG", { timeZone: "Asia/Riyadh" }).format(
                             new Date(document.document_date),
                           )}`
                         : ""}
@@ -615,6 +664,7 @@ export default async function WorkspaceRequestPage({
                       ) : null}
                       <time className="mt-1 block text-[11px] text-muted">
                         {new Intl.DateTimeFormat("ar-EG", {
+                          timeZone: "Asia/Riyadh",
                           dateStyle: "medium",
                           timeStyle: "short",
                         }).format(new Date(event.created_at))}

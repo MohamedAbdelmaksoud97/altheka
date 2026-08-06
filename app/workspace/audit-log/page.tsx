@@ -66,6 +66,7 @@ const tableLabels: Record<string, string> = {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Asia/Riyadh",
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));

@@ -459,6 +459,7 @@ export default async function RequestsPage({
                     <p className="mt-1 text-xs text-muted">
                       آخر تحديث{" "}
                       {new Intl.DateTimeFormat("ar-EG", {
+                        timeZone: "Asia/Riyadh",
                         dateStyle: "medium",
                         timeStyle: "short",
                       }).format(new Date(request.updated_at))}

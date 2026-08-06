@@ -24,6 +24,7 @@ import {
   UserPlus,
   UsersRound,
 } from "lucide-react";
+import { saudiDateValue } from "@/lib/datetime";
 import {
   acknowledgeAttentionNoticeAction,
   activateLitigationWorkflowStageAction,
@@ -380,7 +381,7 @@ export function LitigationStageRoutingForm({
     >
       <input type="hidden" name="project_id" value={projectId} />
       <label>
-        <span className="mb-2 block text-sm font-bold">المسار التالي</span>
+        <span className="mb-2 block text-sm font-bold">المرحلة التالية في خارطة السير</span>
         <select
           name="stage_code"
           data-testid="litigation-stage-select"
@@ -395,7 +396,7 @@ export function LitigationStageRoutingForm({
         </select>
       </label>
       <label>
-        <span className="mb-2 block text-sm font-bold">سبب اختيار المسار</span>
+        <span className="mb-2 block text-sm font-bold">سبب اختيار المرحلة التالية</span>
         <input
           name="reason"
           required
@@ -405,7 +406,7 @@ export function LitigationStageRoutingForm({
           placeholder="الحكم أو طلب العميل أو اكتمال التنفيذ"
         />
       </label>
-      <SubmitButton label="اعتماد المسار" icon={GitBranch} />
+      <SubmitButton label="اعتماد المرحلة التالية" icon={GitBranch} />
       <div className="sm:col-span-3">
         <ActionNotice state={state} />
       </div>
@@ -433,30 +434,50 @@ export function WorkflowActionControl({
   projectId,
   actionId,
   status,
+  requiresApproval,
+  canExecute,
+  canApprove,
 }: {
   projectId: string;
   actionId: string;
   status: string;
+  requiresApproval: boolean;
+  canExecute: boolean;
+  canApprove: boolean;
 }) {
   const [state, action] = useActionState(
     operateWorkflowAction,
     initialActionState,
   );
   const next = workflowNext[status];
-  if (!next) return null;
+  const allowed = status === "awaiting_approval" ? canApprove : canExecute;
+  if (!next || !allowed) return null;
   return (
-    <form action={action} className="space-y-2">
-      <input type="hidden" name="project_id" value={projectId} />
-      <input type="hidden" name="action_id" value={actionId} />
-      <input type="hidden" name="next_status" value={next.status} />
-      <ActionNotice state={state} />
-      <SubmitButton
-        label={next.label}
-        icon={next.status === "approved" ? Check : ArrowUpLeft}
-        tone={next.tone}
-        compact
-      />
-    </form>
+    <div className="space-y-2">
+      <form action={action} className="space-y-2">
+        <input type="hidden" name="project_id" value={projectId} />
+        <input type="hidden" name="action_id" value={actionId} />
+        <input type="hidden" name="next_status" value={next.status} />
+        <input type="hidden" name="requires_approval" value={String(requiresApproval)} />
+        <ActionNotice state={state} />
+        <SubmitButton
+          label={status === "in_progress" ? requiresApproval ? "إرسال للاعتماد" : "تم التنفيذ" : status === "awaiting_approval" ? "اعتماد وإكمال" : next.label}
+          icon={next.status === "approved" ? Check : ArrowUpLeft}
+          tone={next.tone}
+          compact
+        />
+      </form>
+      {status === "awaiting_approval" ? (
+        <form action={action} className="space-y-2">
+          <input type="hidden" name="project_id" value={projectId} />
+          <input type="hidden" name="action_id" value={actionId} />
+          <input type="hidden" name="next_status" value="returned_for_revision" />
+          <input type="hidden" name="requires_approval" value="true" />
+          <input name="reason" required minLength={5} placeholder="سبب الإعادة للتعديل" className={inputClass} />
+          <SubmitButton label="إعادة للتعديل" icon={ArrowUpLeft} compact />
+        </form>
+      ) : null}
+    </div>
   );
 }
 
@@ -1309,7 +1330,7 @@ export function EstateFinancialEntryForm({
           name="occurred_on"
           type="date"
           required
-          defaultValue={new Date().toISOString().slice(0, 10)}
+          defaultValue={saudiDateValue()}
           className={inputClass}
         />
       </label>
@@ -1393,7 +1414,7 @@ export function EstateReportCreateForm({ projectId }: { projectId: string }) {
           name="period_end"
           type="date"
           required
-          defaultValue={new Date().toISOString().slice(0, 10)}
+          defaultValue={saudiDateValue()}
           className={inputClass}
         />
       </label>
@@ -1779,7 +1800,7 @@ export function ProjectTeamMemberForm({
     initialActionState,
   );
   return (
-    <form action={action} className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px_auto]">
+    <form action={action} className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_150px_160px_auto]">
       <input type="hidden" name="project_id" value={projectId} />
       <input type="hidden" name="team_id" value={teamId} />
       <select name="user_id" required defaultValue="" className={inputClass}>
@@ -1797,8 +1818,17 @@ export function ProjectTeamMemberForm({
         <option value="member">عضو منفذ</option>
         <option value="observer">متابع</option>
       </select>
+      <select name="work_type" defaultValue="" className={inputClass}>
+        <option value="">نوع العمل (اختياري)</option>
+        <option value="inventory">حصر</option>
+        <option value="study">دراسة</option>
+        <option value="pleading">مرافعة</option>
+        <option value="follow_up">متابعة</option>
+        <option value="drafting">صياغة</option>
+        <option value="other">أخرى</option>
+      </select>
       <SubmitButton label="إضافة أو تعديل" icon={UserPlus} />
-      <div className="sm:col-span-3">
+      <div className="sm:col-span-2 xl:col-span-4">
         <ActionNotice state={state} />
       </div>
     </form>
@@ -1866,7 +1896,7 @@ export function ProjectMessageForm({
   );
 }
 
-export function ProjectDocumentForm({ projectId }: { projectId: string }) {
+export function ProjectDocumentForm({ projectId, workflowActionId }: { projectId: string; workflowActionId?: string }) {
   const [state, action] = useActionState(
     uploadProjectDocumentAction,
     initialActionState,
@@ -1874,6 +1904,7 @@ export function ProjectDocumentForm({ projectId }: { projectId: string }) {
   return (
     <form action={action} className="grid gap-3 sm:grid-cols-2">
       <input type="hidden" name="project_id" value={projectId} />
+      {workflowActionId ? <input type="hidden" name="workflow_action_id" value={workflowActionId} /> : null}
       <label>
         <span className="mb-2 block text-sm font-bold">عنوان المستند</span>
         <input name="title" required className={inputClass} />

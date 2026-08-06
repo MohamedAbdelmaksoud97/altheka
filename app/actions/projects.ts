@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ActionState } from "@/app/actions/action-state";
+import { toSaudiIsoDateTime } from "@/lib/datetime";
 import {
   DOCUMENT_ALLOWED_MIME_TYPES,
   DOCUMENT_MAX_BYTES,
@@ -50,9 +51,7 @@ function refreshProject(projectId: string) {
 
 function optionalDateTime(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
-  if (!text) return null;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  return toSaudiIsoDateTime(text);
 }
 
 export async function startProjectWorkflowAction(
@@ -90,12 +89,14 @@ export async function operateWorkflowAction(
         "returned_for_revision",
       ]),
       reason: z.string().trim().max(1000).optional(),
+      requiresApproval: z.enum(["true", "false"]).default("false"),
     })
     .safeParse({
       projectId: formData.get("project_id"),
       actionId: formData.get("action_id"),
       nextStatus: formData.get("next_status"),
       reason: String(formData.get("reason") ?? "") || undefined,
+      requiresApproval: String(formData.get("requires_approval") ?? "false") as "true" | "false",
     });
   if (!parsed.success) return errorState("تعذر قراءة انتقال الإجراء.");
 
@@ -107,6 +108,19 @@ export async function operateWorkflowAction(
     p_is_override: false,
   });
   if (error) return errorState(rpcError(error, "تعذر تحديث حالة الإجراء."));
+
+  const followUpStatus = parsed.data.nextStatus === "submitted"
+    ? parsed.data.requiresApproval === "true" ? "awaiting_approval" : "completed"
+    : parsed.data.nextStatus === "approved" ? "completed" : null;
+  if (followUpStatus) {
+    const { error: followUpError } = await supabase.rpc("operate_workflow_action", {
+      p_action_instance_id: parsed.data.actionId,
+      p_new_status: followUpStatus,
+      p_reason: parsed.data.reason ?? null,
+      p_is_override: false,
+    });
+    if (followUpError) return errorState(rpcError(followUpError, "تم حفظ الخطوة الأولى لكن تعذر إكمال انتقال الإجراء."));
+  }
 
   refreshProject(parsed.data.projectId);
   return successState("تم تحديث الإجراء وتقدم المرحلة.");
@@ -1325,12 +1339,14 @@ export async function assignProjectTeamMemberAction(
       teamId: uuid,
       userId: uuid,
       teamRole: z.enum(["leader", "member", "observer"]),
+      workType: z.enum(["inventory", "study", "pleading", "follow_up", "drafting", "other"]).optional(),
     })
     .safeParse({
       projectId: formData.get("project_id"),
       teamId: formData.get("team_id"),
       userId: formData.get("user_id"),
       teamRole: formData.get("team_role"),
+      workType: formData.get("work_type") || undefined,
     });
   if (!parsed.success) return errorState("اختر عضو الفريق ودوره.");
 
@@ -1341,6 +1357,15 @@ export async function assignProjectTeamMemberAction(
     p_team_role: parsed.data.teamRole,
   });
   if (error) return errorState(rpcError(error, "تعذر إضافة عضو الفريق."));
+
+  const { error: workTypeError } = await supabase.rpc("set_project_team_member_work_type", {
+    p_project_team_id: parsed.data.teamId,
+    p_user_id: parsed.data.userId,
+    p_work_type: parsed.data.workType ?? null,
+  });
+  if (workTypeError) {
+    return errorState(rpcError(workTypeError, "تمت إضافة العضو لكن تعذر حفظ نوع العمل."));
+  }
 
   refreshProject(parsed.data.projectId);
   return successState("تم تحديث عضوية الفريق وإسناد إجراءاته المفتوحة.");
@@ -1458,11 +1483,13 @@ export async function uploadProjectDocumentAction(
       projectId: uuid,
       title: z.string().trim().min(3).max(200),
       documentType: z.string().trim().min(2).max(100),
+      workflowActionId: z.union([uuid, z.literal("")]).optional(),
     })
     .safeParse({
       projectId: formData.get("project_id"),
       title: formData.get("title"),
       documentType: formData.get("document_type"),
+      workflowActionId: formData.get("workflow_action_id") || "",
     });
   if (!parsed.success) return errorState("أكمل عنوان المستند ونوعه.");
 
@@ -1495,7 +1522,7 @@ export async function uploadProjectDocumentAction(
   if (uploadError) return errorState("تعذر رفع الملف إلى التخزين الخاص.");
 
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const { error } = await supabase.rpc("register_project_document", {
+  const { data: documentId, error } = await supabase.rpc("register_project_document", {
     p_project_id: parsed.data.projectId,
     p_title: parsed.data.title,
     p_document_type: parsed.data.documentType,
@@ -1509,6 +1536,16 @@ export async function uploadProjectDocumentAction(
   if (error) {
     await createAdminClient().storage.from(bucket).remove([storagePath]);
     return errorState(rpcError(error, "تعذر تسجيل المستند بعد رفعه."));
+  }
+
+  if (parsed.data.workflowActionId && documentId) {
+    const { error: linkError } = await supabase.rpc("link_document_to_workflow_action", {
+      p_document_id: documentId,
+      p_workflow_action_instance_id: parsed.data.workflowActionId,
+    });
+    if (linkError) {
+      return errorState(rpcError(linkError, "تم رفع المستند لكن تعذر ربطه بخطوة خارطة السير."));
+    }
   }
 
   refreshProject(parsed.data.projectId);
